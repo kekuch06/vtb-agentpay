@@ -270,3 +270,25 @@ test("код истёк: окно предлагает новый код, опл
   await expect(page.locator(".receipt")).toBeVisible();
   await expect(orderStatus(page)).toHaveText("Оплачен (sandbox)");
 });
+
+// WCAG 1.4.11: граница поля и кольцо фокуса отличимы от фона не меньше чем 3:1. axe-core это не проверяет.
+test("контраст границ полей и кольца фокуса не ниже 3:1 (WCAG 1.4.11)", async ({ page }) => {
+  for (const scheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await composer(page).focus();
+    const r = await composer(page).evaluate((el) => {
+      const rgb = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+      const lum = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+        .reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const ratio = (a, b) => { const [x, y] = [lum(rgb(a)), lum(rgb(b))].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+      const bg = getComputedStyle(el.closest(".dock")).backgroundColor;
+      el.blur();
+      const border = getComputedStyle(el).borderTopColor;
+      el.focus();
+      const ring = getComputedStyle(el).outlineColor;
+      return { border: ratio(border, bg), ring: ratio(ring, bg) };
+    });
+    expect(r.border, `${scheme}: граница поля`).toBeGreaterThanOrEqual(3);
+    expect(r.ring, `${scheme}: кольцо фокуса`).toBeGreaterThanOrEqual(3);
+  }
+});
