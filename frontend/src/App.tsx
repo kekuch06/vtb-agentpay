@@ -74,8 +74,8 @@ const STATUS: Record<OrderStatus, { title: string; hint: string; icon: IconName 
   draft: { title: "Заказ оформлен", hint: "Проверьте условия и перейдите к оплате", icon: "receipt" },
   awaiting_confirmation: { title: "Ждёт подтверждения", hint: "Код отправлен на ваше устройство", icon: "phone" },
   paid: { title: "Оплачен (sandbox)", hint: "Тестовый платёж, деньги не списывались", icon: "check" },
-  rejected: { title: "Отклонён", hint: "Платёж не проведён. Отправьте поручение заново", icon: "cross" },
-  expired: { title: "Истёк", hint: "Заказ действует 15 минут. Отправьте поручение заново", icon: "clock" },
+  rejected: { title: "Отклонён", hint: "Платёж не проведён. Агент соберёт предложения заново по тому же поручению", icon: "cross" },
+  expired: { title: "Истёк", hint: "Заказ действует 15 минут. Агент соберёт предложения заново по тому же поручению", icon: "clock" },
 };
 
 const LIMIT_OPTIONS = [5000, 10000, 20000, 30000, 50000];
@@ -85,7 +85,6 @@ export default function App() {
   const [health, setHealth] = useState<Health | null | undefined>(undefined);  // undefined — ещё не знаем
   const [limits, setLimits] = useState<Limits | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
@@ -141,14 +140,19 @@ export default function App() {
     }
   }
 
-  async function send(text: string) {
+  // Возвращает, принято ли поручение: строка ввода очищается только тогда.
+  function send(text: string): boolean {
     text = text.trim();
-    if (!text || busy) return;
+    if (!text || busy) return false;
     if (text.length < 3) {
       event("warn", "Опишите покупку подробнее: товар, бюджет или срок доставки");
-      return;
+      return false;
     }
-    setInput("");
+    runTask(text);
+    return true;
+  }
+
+  async function runTask(text: string) {
     push({ role: "user", text });
     setBusy(true);
     try {
@@ -338,7 +342,12 @@ export default function App() {
               <Message key={m.id} m={m} current={task} order={order} busy={busy} onOrder={makeOrder}
                        onOpenOffers={() => show("offers")} onOpenOrder={() => show("order")} />
             ))}
-            {busy && <div className="msg agent typing" role="status" aria-label="Агент работает"><span /><span /><span /></div>}
+            {busy && (
+              <div className="msg agent typing" role="status">
+                <span className="dots" aria-hidden="true"><span /><span /><span /></span>
+                <small>Разбираю поручение и проверяю предложения продавцов</small>
+              </div>
+            )}
             <div ref={chatEnd} className="chat-end" />
           </div>
           <div className="dock">
@@ -348,12 +357,7 @@ export default function App() {
                 {EXAMPLES.map((x) => <button key={x} onClick={() => send(x)} disabled={busy}>{x}</button>)}
               </div>
             )}
-            <form className="composer" onSubmit={(e) => { e.preventDefault(); send(input); }}>
-              <label htmlFor="task-input" className="sr-only">Поручение агенту</label>
-              <input id="task-input" value={input} onChange={(e) => setInput(e.target.value)} maxLength={500} autoComplete="off"
-                     placeholder="Опишите покупку" enterKeyHint="send" />
-              <button className="send" disabled={busy || !input.trim()} aria-label="Отправить поручение"><Icon name="send" /></button>
-            </form>
+            <Composer busy={busy} onSend={send} />
           </div>
         </section>
 
@@ -363,7 +367,8 @@ export default function App() {
             {tab === "offers" && <Offers task={task} onOrder={makeOrder} busy={busy} onChat={() => setView("chat")} />}
             {tab === "order" && (
               <OrderView order={order} policy={policy} fresh={policyFresh} payment={payment} onCheckout={checkout} busy={busy}
-                         onOpenConfirm={challenge ? () => setShowConfirm(true) : undefined} />
+                         onOpenConfirm={challenge ? () => setShowConfirm(true) : undefined}
+                         onRetry={task ? () => { setView("chat"); send(task.text); } : undefined} />
             )}
             {tab === "audit" && <AuditView audit={audit} hasTask={!!task} onRefresh={refreshAudit} />}
             {tab === "sandbox" && <SandboxView order={order} task={task} limits={limits} onLimit={saveLimit} onScenario={runScenario} />}
@@ -389,6 +394,19 @@ export default function App() {
                       onResend={checkout} onCancel={() => setShowConfirm(false)} />
       )}
     </div>
+  );
+}
+
+// Строка ввода держит своё состояние: набор поручения не перерисовывает переписку и панель на каждый символ.
+function Composer({ busy, onSend }: { busy: boolean; onSend: (text: string) => boolean }) {
+  const [input, setInput] = useState("");
+  return (
+    <form className="composer" onSubmit={(e) => { e.preventDefault(); if (onSend(input)) setInput(""); }}>
+      <label htmlFor="task-input" className="sr-only">Поручение агенту</label>
+      <input id="task-input" value={input} onChange={(e) => setInput(e.target.value)} maxLength={500} autoComplete="off"
+             placeholder="Опишите покупку" enterKeyHint="send" />
+      <button className="send" disabled={busy || !input.trim()} aria-label="Отправить поручение"><Icon name="send" /></button>
+    </form>
   );
 }
 
@@ -616,9 +634,9 @@ function CheckList({ items, reveal }: { items: { key: string; name: string; pass
   );
 }
 
-function OrderView({ order, policy, fresh, payment, onCheckout, busy, onOpenConfirm }: {
+function OrderView({ order, policy, fresh, payment, onCheckout, busy, onOpenConfirm, onRetry }: {
   order: Order | null; policy: PolicyResult[] | null; fresh: boolean; payment: Payment | null; onCheckout: () => void; busy: boolean;
-  onOpenConfirm?: () => void;
+  onOpenConfirm?: () => void; onRetry?: () => void;
 }) {
   if (!order) {
     return (
@@ -656,6 +674,9 @@ function OrderView({ order, policy, fresh, payment, onCheckout, busy, onOpenConf
         )}
         {order.status === "awaiting_confirmation" && !onOpenConfirm && (
           <button className="secondary" disabled={busy} onClick={onCheckout} data-return-focus>Запросить новый код</button>
+        )}
+        {(order.status === "rejected" || order.status === "expired") && onRetry && (
+          <button className="primary" disabled={busy} onClick={onRetry}>Повторить поручение</button>
         )}
       </div>
       {policy && (

@@ -22,7 +22,6 @@ const PATHS = {
   swap: <><path d="M7 4 3 8l4 4M3 8h13M17 20l4-4-4-4M21 16H8" /></>,
   refresh: <><path d="M20 12a8 8 0 0 1-14.3 4.9M4 12a8 8 0 0 1 14.3-4.9" /><path d="M18.5 3v4.2h-4.2M5.5 21v-4.2h4.2" /></>,
   chevronDown: <path d="m6 9 6 6 6-6" />,
-  chevronRight: <path d="m9 6 6 6-6 6" />,
   clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
   sparkle: <path d="M12 3c.6 4.6 2.4 7.4 9 9-6.6 1.6-8.4 4.4-9 9-.6-4.6-2.4-7.4-9-9 6.6-1.6 8.4-4.4 9-9Z" />,
   wallet: <><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3" /><rect x="4" y="8" width="16" height="11" rx="2.5" /><path d="M16 13.5h.01" /></>,

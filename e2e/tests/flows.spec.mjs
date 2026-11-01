@@ -322,3 +322,15 @@ test("журнал: опоздавший ответ не перезаписыв�
   await page.waitForTimeout(2000);  // A пришёл после B
   await expect(page.locator(".audit")).toContainText("order.created");
 });
+
+test("после отказа поручение повторяется одной кнопкой", async ({ page }) => {
+  await sendTask(page, MAIN);
+  await orderRecommended(page);
+  await sandbox(page, "Рост цены");
+  await openTab(page, "Заказ");
+  await checkout(page);
+  await expect(orderStatus(page)).toHaveText("Отклонён");
+  const before = await agentReplies(page).count();
+  await page.getByRole("button", { name: "Повторить поручение" }).click();
+  await expect(agentReplies(page)).toHaveCount(before + 1);
+});
