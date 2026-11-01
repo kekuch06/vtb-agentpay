@@ -68,6 +68,18 @@ def device_messages(owner: str) -> list[DeviceMessage]:
     return [DeviceMessage.model_validate_json(r[0]) for r in rows]
 
 
+def expire_challenges(order_id: str, at: datetime) -> int:
+    """Только для sandbox: действующие коды по заказу считаются истёкшими (имитация прошедших пяти минут)."""
+    n = 0
+    with db.tx():
+        for cid, raw in db.query("SELECT challenge_id, doc FROM challenges WHERE order_id = ? AND used = 0", (order_id,)):
+            doc = json.loads(raw)
+            doc["challenge"]["expires_at"] = at.isoformat()
+            db.execute("UPDATE challenges SET doc = ? WHERE challenge_id = ?", (json.dumps(doc), cid))
+            n += 1
+    return n
+
+
 def use_challenge(challenge_id: str) -> None:
     db.execute("UPDATE challenges SET used = 1 WHERE challenge_id = ?", (challenge_id,))
 

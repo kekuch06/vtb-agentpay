@@ -86,3 +86,29 @@ def test_every_rejection_is_audited(client, monkeypatch):
     assert _confirm(client, o, ch, code_for(client, ch)).status_code == 403
     reasons = [e["data"].get("reason") for e in client.get("/api/audit").json()["entries"] if e["action"] == "confirmation.rejected"]
     assert "expired" in reasons
+
+
+def test_expired_code_rejected_and_new_code_works(client):
+    # Сценарий sandbox «Код истёк» — имитация пяти прошедших минут: правильный код больше не принимается,
+    # новый код по тому же заказу проходит, а неверных попыток не добавляется.
+    o = _order(client)
+    ch = _checkout(client, o)["challenge"]
+    code = code_for(client, ch)
+    assert client.post("/api/sandbox/scenario", json={"name": "code_expired", "order_id": o["order_id"]}).status_code == 200
+    r = _confirm(client, o, ch, code)
+    assert r.status_code == 403 and "истёк" in r.json()["detail"]
+    ch2 = _checkout(client, o)["challenge"]
+    assert _confirm(client, o, ch2, code_for(client, ch2)).status_code == 200
+
+
+def test_code_expired_scenario_is_per_client(client):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    o = _order(client)
+    ch = _checkout(client, o)["challenge"]
+    other = TestClient(app)
+    assert other.post("/api/sandbox/scenario", json={"name": "code_expired", "order_id": o["order_id"]}).status_code == 404
+    assert _confirm(client, o, ch, code_for(client, ch)).status_code == 200
+    # без действующего кода сценарий не применяется
+    assert client.post("/api/sandbox/scenario", json={"name": "code_expired", "order_id": o["order_id"]}).status_code == 409

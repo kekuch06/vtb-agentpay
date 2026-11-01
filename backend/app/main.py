@@ -5,7 +5,7 @@ import hashlib
 import os
 import re
 import secrets
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -79,7 +79,7 @@ class ConfirmIn(BaseModel):
 
 
 class ScenarioIn(BaseModel):
-    name: Literal["price_spike", "out_of_stock", "payee_swap", "reset"]
+    name: Literal["price_spike", "out_of_stock", "payee_swap", "code_expired", "reset"]
     offer_id: str | None = None
     order_id: str | None = None
 
@@ -194,6 +194,15 @@ def scenario(body: ScenarioIn, me: str = Depends(owner)):
             audit.log("sandbox", "untrusted", "sandbox.payee_swapped", {"payee_account": o.payee_account},
                       task_id=o.task_id, order_id=o.order_id, owner=me)
         return {"message": "реквизиты получателя в заказе подменены"}
+    if body.name == "code_expired":
+        with db.tx():
+            o = store.get_order(me, body.order_id or "")
+            if o is None:
+                raise HTTPException(404, "заказ не найден")
+            if not store.expire_challenges(o.order_id, payments._now() - timedelta(seconds=1)):
+                raise HTTPException(409, "у заказа нет действующего кода подтверждения")
+            audit.log("sandbox", "untrusted", "sandbox.code_expired", {}, task_id=o.task_id, order_id=o.order_id, owner=me)
+        return {"message": "срок кода подтверждения истёк"}
     try:
         msg = catalogs.apply_scenario(body.name, body.offer_id or "")
     except KeyError:
