@@ -138,12 +138,22 @@ def _connect() -> _Conn:
 @contextmanager
 def tx() -> Iterator[_Conn]:
     """Транзакция под блокировкой записи. Вложенный вызов присоединяется к внешней транзакции."""
-    global _depth
+    global _depth, _conn
     with _lock:
         conn = _connect()
         if _depth == 0:
             if conn.pg:
-                conn.execute("BEGIN")
+                try:
+                    conn.execute("BEGIN")
+                except Exception as e:
+                    # Сервер БД перезапускался или соединение оборвала сеть: это видно только на первой команде.
+                    # Внутри транзакции ещё ничего не сделано, поэтому переоткрыть соединение и начать заново безопасно.
+                    import psycopg
+                    if not isinstance(e, (psycopg.OperationalError, psycopg.InterfaceError)):
+                        raise
+                    _conn = None
+                    conn = _connect()
+                    conn.execute("BEGIN")
                 conn.execute("SELECT pg_advisory_xact_lock(?)", (LOCK_KEY,))
             else:
                 conn.execute("BEGIN IMMEDIATE")
