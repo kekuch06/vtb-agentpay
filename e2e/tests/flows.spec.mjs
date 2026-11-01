@@ -51,7 +51,7 @@ test("неверный код трижды: заказ отклонён, пра�
   await enterCode(page, wrong);
   await expect(dialog(page)).toContainText(/осталось попыток: 1/i);
   await enterCode(page, wrong);
-  await expect(events(page).last()).toContainText(/превышено число попыток/i);
+  await expect(events(page).last()).toContainText(/попытки закончились/i);
   await expect(orderStatus(page)).toHaveText("Отклонён");
   await expect(page.getByRole("button", { name: "Подтвердить оплату" })).toHaveCount(0);
   await openTab(page, "Журнал");
@@ -107,13 +107,13 @@ test("sandbox: подмена реквизитов в заказе — обна�
   await expect(orderStatus(page)).toHaveText("Отклонён");
 });
 
-test("sandbox: лимит на операцию ниже суммы — заказ отклонён", async ({ page }) => {
+test("sandbox: лимит на одну покупку ниже суммы — заказ отклонён", async ({ page }) => {
   await openTab(page, "Sandbox");
-  await page.getByLabel("Лимит на одну операцию").selectOption("5000");
+  await page.getByLabel("Лимит на одну покупку").selectOption("5000");
   await sendTask(page, MAIN);
   await orderRecommended(page);
   await checkout(page);
-  await expect(page.locator(".checks li.bad")).toContainText(["Лимит на операцию"]);
+  await expect(page.locator(".checks li.bad")).toContainText(["Лимит на одну покупку"]);
   await expect(orderStatus(page)).toHaveText("Отклонён");
 });
 
@@ -162,7 +162,7 @@ test("двойной Enter в поле кода: оплаченный заказ
 test("ошибка сохранения лимита не выглядит как успех", async ({ page }) => {
   test.info().annotations.push({ type: "console-errors-expected" });
   await openTab(page, "Sandbox");
-  const select = page.getByLabel("Лимит на одну операцию");
+  const select = page.getByLabel("Лимит на одну покупку");
   const before = await select.inputValue();
   await page.route("**/api/settings", (r) => r.request().method() === "PUT" ? r.fulfill({ status: 500, body: "{}" }) : r.continue());
   await select.selectOption("5000");
@@ -241,7 +241,7 @@ test("на телефоне вкладка открывается с начал�
   await openTab(page, "Агент");
   await expect(agentReplies(page).last().getByRole("button", { name: "Оформить заказ" })).toHaveCount(0);
   await agentReplies(page).last().getByRole("button", { name: "Открыть заказ" }).click();
-  await expect(orderStatus(page)).toHaveText("Заказ создан");
+  await expect(orderStatus(page)).toHaveText("Заказ оформлен");
 });
 
 test("код истёк: окно предлагает новый код, оплата проходит с ним", async ({ page }) => {

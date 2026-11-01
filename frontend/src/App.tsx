@@ -37,7 +37,7 @@ const RULE_RU: Record<string, string> = {
   offer_recheck: "Перепроверка условий",
   task_open: "Одна покупка на поручение",
   task_budget: "Бюджет поручения",
-  per_operation_limit: "Лимит на операцию",
+  per_operation_limit: "Лимит на одну покупку",
   daily_limit: "Дневной лимит",
   not_expired: "Срок заказа",
   not_paid: "Защита от повтора",
@@ -51,7 +51,7 @@ const ACTION_RU: Record<string, string> = {
   "catalog.searched": "Каталог продавца опрошен",
   "offers.verified": "Предложения проверены кодом",
   "recommendation.made": "Рекомендация",
-  "order.created": "Заказ создан",
+  "order.created": "Заказ оформлен",
   "policy.evaluated": "Проверка Policy Engine",
   "confirmation.requested": "Код отправлен на устройство",
   "confirmation.rejected": "Подтверждение отклонено",
@@ -71,7 +71,7 @@ const CATEGORY_RU: Record<string, string> = {
 const ZONE_RU: Record<string, string> = { untrusted: "Недоверенная зона", trusted: "Доверенная зона", user: "Клиент" };
 
 const STATUS: Record<OrderStatus, { title: string; hint: string; icon: IconName }> = {
-  draft: { title: "Заказ создан", hint: "Проверьте условия и перейдите к оплате", icon: "receipt" },
+  draft: { title: "Заказ оформлен", hint: "Проверьте условия и перейдите к оплате", icon: "receipt" },
   awaiting_confirmation: { title: "Ждёт подтверждения", hint: "Код отправлен на ваше устройство", icon: "phone" },
   paid: { title: "Оплачен (sandbox)", hint: "Тестовый платёж, деньги не списывались", icon: "check" },
   rejected: { title: "Отклонён", hint: "Платёж не проведён. Отправьте поручение заново", icon: "cross" },
@@ -167,7 +167,7 @@ export default function App() {
     try {
       const r = await api.order(task.task_id, offerId);
       setOrder(r.order); setPolicy(r.policy); setPolicyFresh(false); setChallenge(null); setPayment(null);
-      event("ok", `Заказ на ${money(r.order.amount_kop)} создан. Цену агент запросил у продавца заново, счёт получателя взят из реестра банка`);
+      event("ok", `Заказ на ${money(r.order.amount_kop)} оформлен. Цену агент запросил у продавца заново, счёт получателя взят из реестра банка`);
       show("order");
     } catch (e) {
       event("bad", errorText(e));
@@ -232,7 +232,7 @@ export default function App() {
         return null;
       }
       const msg = errorText(e);
-      return { error: msg, resend: /истёк|использовано|изменился/.test(msg) };
+      return { error: msg, resend: /истёк|не действует|изменился/.test(msg) };
     }
   }
 
@@ -260,7 +260,7 @@ export default function App() {
     try {
       const s = await api.setLimit(v);
       setLimits(s);
-      event("ok", `Лимит на одну операцию: ${rub(s.per_operation_limit_rub)}`);
+      event("ok", `Лимит на одну покупку: ${rub(s.per_operation_limit_rub)}`);
     } catch (e) {
       event("bad", `Лимит не изменён. ${errorText(e)}`);
     }
@@ -854,7 +854,7 @@ function SandboxView({ order, task, limits, onLimit, onScenario }: {
         </button>
       </div>
       <div className="limit">
-        <label htmlFor="limit-select">Лимит на одну операцию</label>
+        <label htmlFor="limit-select">Лимит на одну покупку</label>
         <select id="limit-select" value={limits?.per_operation_limit_rub ?? 30000} onChange={(e) => onLimit(Number(e.target.value))} disabled={!limits}>
           {LIMIT_OPTIONS.map((v) => <option key={v} value={v}>{rub(v)}</option>)}
         </select>

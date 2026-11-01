@@ -124,7 +124,7 @@ def evaluate(owner: str, o: Order, task: Task, today: date) -> list[PolicyResult
     limit = limits["per_operation_limit_rub"]
     limit_ok = o.amount_kop <= limit * 100
     r.append(PolicyResult(rule="per_operation_limit", passed=limit_ok,
-                          detail=f"лимит на операцию {_rub(limit)}" + ("" if limit_ok else " превышен")))
+                          detail=f"лимит на одну покупку {_rub(limit)}" + ("" if limit_ok else " превышен")))
     spent = store.spent_on(owner, bank_day(_now()))
     daily_ok = spent + o.amount_kop <= limits["daily_limit_rub"] * 100
     r.append(PolicyResult(rule="daily_limit", passed=daily_ok,
@@ -213,7 +213,7 @@ def _confirm(owner: str, o: Order, task: Task, challenge_id: str, code: str, tod
         return _reject_confirmation(owner, o, "unknown_challenge", "подтверждение не найдено для этого заказа")
     ch, hash_at_request, code_mac, used = found
     if used:
-        return _reject_confirmation(owner, o, "replay", "подтверждение уже использовано")
+        return _reject_confirmation(owner, o, "replay", "этот код больше не действует, запросите новый")
     if o.status != "awaiting_confirmation" or o.code_attempts >= MAX_CODE_ATTEMPTS:
         return _reject_confirmation(owner, o, "order_closed", "заказ закрыт, оформите новый")
     if _now() >= ch.expires_at:
@@ -221,15 +221,15 @@ def _confirm(owner: str, o: Order, task: Task, challenge_id: str, code: str, tod
         return _reject_confirmation(owner, o, "expired", "срок подтверждения истёк, запросите новый код")
     if not hmac.compare_digest(hash_at_request, order_hash(o)):
         store.use_challenge(challenge_id)
-        return _reject_confirmation(owner, o, "order_changed", "заказ изменился после запроса подтверждения")
+        return _reject_confirmation(owner, o, "order_changed", "заказ изменился после отправки кода, запросите новый код")
     if not hmac.compare_digest(keys.mac("otp", challenge_id, code), code_mac):
         o.code_attempts += 1
         left = MAX_CODE_ATTEMPTS - o.code_attempts
         if left <= 0:
             store.use_challenge(challenge_id)
             o.status = "rejected"
-            return _reject_confirmation(owner, o, "wrong_code", "превышено число попыток, заказ отклонён", attempt=o.code_attempts)
-        return _reject_confirmation(owner, o, "wrong_code", f"неверный код подтверждения, осталось попыток: {left}", attempt=o.code_attempts)
+            return _reject_confirmation(owner, o, "wrong_code", "неверный код, попытки закончились — заказ отклонён", attempt=o.code_attempts)
+        return _reject_confirmation(owner, o, "wrong_code", f"неверный код, осталось попыток: {left}", attempt=o.code_attempts)
     store.use_challenge(challenge_id)
     audit.log("user", "user", "confirmation.approved", {"challenge_id": challenge_id}, task_id=o.task_id, order_id=o.order_id, owner=owner)
 
