@@ -1,16 +1,17 @@
-"""Журнал действий агента и платёжного контура. Только добавление; записи связаны хеш-цепочкой,
-поэтому изменение или удаление любой записи обнаруживается при проверке."""
+"""Журнал действий агента и платёжного контура. Только добавление; записи связаны цепочкой HMAC-SHA256
+с ключом сервера, поэтому изменение или удаление записи обнаруживается при проверке. Ключ хранится вне базы:
+с доступом только к базе цепочку после правки не пересчитать. Удаление записей с конца цепочки по одной базе
+не обнаруживается — для этого голову цепочки нужно выгружать во внешнее хранилище (SIEM, WORM)."""
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timezone
 
-from . import db
+from . import db, keys
 
 
 def _hash(prev: str, row: dict) -> str:
-    return hashlib.sha256((prev + json.dumps(row, ensure_ascii=False, sort_keys=True)).encode()).hexdigest()
+    return keys.mac("audit", prev, json.dumps(row, ensure_ascii=False, sort_keys=True))
 
 
 def log(actor: str, zone: str, action: str, data: dict | None = None, task_id: str | None = None, order_id: str | None = None,

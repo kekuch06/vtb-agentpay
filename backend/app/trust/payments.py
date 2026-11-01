@@ -7,7 +7,6 @@
 """
 from __future__ import annotations
 
-import hashlib
 import hmac
 import os
 import secrets
@@ -49,8 +48,8 @@ def bank_day(dt: datetime) -> date:
 
 
 def order_hash(o: Order) -> str:
-    payload = f"{o.order_id}|{o.task_id}|{o.offer_id}|{o.merchant_id}|{o.payee_account}|{o.sku}|{o.amount_kop}"
-    return hashlib.sha256(payload.encode()).hexdigest()
+    """HMAC полей заказа, которые определяют платёж. Без ключа сервера подменить заказ в базе и пересчитать хеш нельзя."""
+    return keys.mac("order", o.order_id, o.task_id, o.offer_id, o.merchant_id, o.payee_account, o.sku, str(o.amount_kop))
 
 
 def create_order(owner: str, task: Task, offer_id: str, today: date) -> Order:
