@@ -40,20 +40,21 @@ def test_parallel_code_guessing_is_bounded(client, monkeypatch):
 
 def test_parallel_confirms_respect_daily_limit(client, monkeypatch):
     payments.settings["daily_limit_rub"] = 40_000
-    pending = [_checked_out(client) for _ in range(5)]
+    pending = [(o, ch, code_for(client, ch)) for o, ch in (_checked_out(client) for _ in range(5))]
     _slow(monkeypatch, "evaluate", 0.05)
     with ThreadPoolExecutor(5) as ex:
         list(ex.map(lambda x: client.post(f"/api/orders/{x[0]['order_id']}/confirm",
-                                          json={"challenge_id": x[1]["challenge_id"], "code": code_for(client, x[1])}), pending))
+                                          json={"challenge_id": x[1]["challenge_id"], "code": x[2]}), pending))
     assert sum(p.amount_kop for p in payments.all_payments()) <= 40_000 * 100
 
 
 def test_parallel_confirm_same_code_pays_once(client, monkeypatch):
     o, ch = _checked_out(client)
+    code = code_for(client, ch)  # код читается до атаки: после оплаты его на «устройстве» уже нет
     _slow(monkeypatch, "evaluate")
     with ThreadPoolExecutor(10) as ex:
         codes = list(ex.map(lambda _: client.post(f"/api/orders/{o['order_id']}/confirm",
-                                                  json={"challenge_id": ch["challenge_id"], "code": code_for(client, ch)}).status_code, range(10)))
+                                                  json={"challenge_id": ch["challenge_id"], "code": code}).status_code, range(10)))
     assert codes.count(200) == 1 and len(payments.all_payments()) == 1
 
 
