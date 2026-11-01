@@ -84,12 +84,31 @@ make run       # сборка фронтенда и сервер на http://loc
 ollama pull qwen2.5:3b        # или российская T-lite / другая open-weights модель
 ```
 
-**Любой OpenAI-совместимый API**: vLLM в контуре банка, YandexGPT, GigaChat через совместимый прокси. Протокол проверен на Ollama (`/v1`). С YandexGPT и GigaChat не проверялось: нужны ключи доступа.
+**Любой OpenAI-совместимый API**: vLLM в контуре банка, MLX-сервер, DeepSeek, YandexGPT, GigaChat через совместимый прокси. Адрес, модель и ключ — в переменных окружения или в `.env` (его читают `make backend`, `make run`, `make eval`, `make eval-llm` и Docker Compose; в git файл не попадает).
 
 ```bash
 AGENTPAY_LLM=openai AGENTPAY_LLM_BASE_URL=http://vllm.internal:8000/v1 AGENTPAY_LLM_MODEL=<модель> make backend
-# YandexGPT: AGENTPAY_LLM_BASE_URL=https://llm.api.cloud.yandex.net/v1 AGENTPAY_LLM_MODEL=gpt://<folder_id>/yandexgpt-lite AGENTPAY_LLM_API_KEY=<ключ>
 ```
+
+**Qwen3-8B на Mac (MLX, 4 бита).** OpenAI-совместимый сервер `mlx_lm.server` или LM Studio:
+
+```bash
+mlx_lm.server --model mlx-community/Qwen3-8B-4bit --port 8081
+AGENTPAY_LLM=openai AGENTPAY_LLM_BASE_URL=http://127.0.0.1:8081/v1 AGENTPAY_LLM_MODEL=mlx-community/Qwen3-8B-4bit make eval-llm
+```
+
+У Qwen3 по умолчанию включён режим рассуждений: ответ начинается с `<think>…</think>`, а рассуждение здесь не нужно — задача только извлечь поля. Для моделей qwen3 оно выключается (`chat_template_kwargs.enable_thinking=false` и `/no_think` в системном промпте; `AGENTPAY_LLM_THINKING=on|off` — вручную). Если сервер всё же вернул рассуждение, обернул JSON в ```` ```json ```` или не поддерживает `response_format`, ответ всё равно разбирается: рассуждение и текст вокруг JSON вырезаются, а запрос повторяется без `response_format` ([`llm.py`](backend/app/agent/llm.py), тесты — [`test_llm.py`](backend/tests/test_llm.py)).
+
+**DeepSeek** (OpenAI-совместимый API):
+
+```bash
+AGENTPAY_LLM=openai AGENTPAY_LLM_BASE_URL=https://api.deepseek.com AGENTPAY_LLM_MODEL=deepseek-chat make eval-llm
+# ключ — только в AGENTPAY_LLM_API_KEY через .env или секреты окружения
+```
+
+> **DeepSeek — внешний API.** Текст поручения клиента («SSD Samsung 2 ТБ до 16 тысяч к пятнице») уходит на серверы DeepSeek, то есть за пределы контура банка. Это требует согласования с ИБ банка и оценки по 152-ФЗ, если в поручении могут оказаться персональные данные. Поэтому по умолчанию остаётся модель в контуре (Ollama, vLLM, MLX), а DeepSeek — опция для сравнения качества. Карточки товаров, суммы, реквизиты и коды подтверждения модель не видит ни в одном режиме.
+
+С YandexGPT и GigaChat не проверялось: нужны ключи доступа. `make eval-llm` сначала проверяет, что модель отвечает, и падает, если нет: цифры разбора правилами не выдаются за цифры модели. Отчёт называется по модели (`backend/eval/report_llm_grounding_<модель>.md`) и показывает, сколько поручений модель разобрала сама.
 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
@@ -97,6 +116,7 @@ AGENTPAY_LLM=openai AGENTPAY_LLM_BASE_URL=http://vllm.internal:8000/v1 AGENTPAY_
 | `AGENTPAY_LLM_MODEL` | `qwen2.5:3b` | имя модели у провайдера |
 | `AGENTPAY_OLLAMA_URL` | `http://localhost:11434` | адрес Ollama в контуре |
 | `AGENTPAY_LLM_BASE_URL` / `AGENTPAY_LLM_API_KEY` | — | OpenAI-совместимый endpoint и ключ |
+| `AGENTPAY_LLM_THINKING` | `auto` | режим рассуждений: `auto` — выключен для qwen3, `off`, `on` |
 | `AGENTPAY_GROUNDING` | `on` | `off` отключает сверку (только для сравнения в метриках) |
 | `AGENTPAY_TODAY` | системная дата | фиксированная дата для воспроизводимых демо |
 | `AGENTPAY_DATABASE_URL` | — | `postgresql://…` — журнал и платёжное состояние в PostgreSQL |
@@ -116,7 +136,7 @@ AGENTPAY_LLM=openai AGENTPAY_LLM_BASE_URL=http://vllm.internal:8000/v1 AGENTPAY_
 make test       # 90 тестов: разбор поручений, атаки на платёжный контур, гонки, изоляция клиентов, HTTP
 make test-pg PG=postgresql://user:pass@localhost:5432/db   # те же тесты на PostgreSQL
 make eval       # прогон метрик → backend/eval/report_<parser>.md; падает, если атака привела к платежу
-make eval-llm   # то же с локальной моделью (нужен Ollama с моделью)
+make eval-llm   # то же с моделью (Ollama, MLX, DeepSeek — из окружения или .env), без сверки и со сверкой
 make e2e        # сквозной сценарий в браузере (Playwright) против стенда make up
 make lint       # ruff и проверка типов фронтенда
 ```

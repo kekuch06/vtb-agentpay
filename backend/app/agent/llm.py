@@ -1,5 +1,5 @@
 """Извлечение ограничений языковой моделью: on-prem через Ollama или любой OpenAI-совместимый API
-(vLLM в контуре банка, YandexGPT, прокси к GigaChat).
+(vLLM в контуре банка, MLX-сервер, DeepSeek, YandexGPT, прокси к GigaChat).
 
 Модель работает в недоверенной зоне: она видит только текст поручения пользователя, не видит карточки
 товаров и не имеет инструментов, связанных с платежом. Её ответ принимается только после проверки схемы.
@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import time
 from datetime import date
 
 import httpx
@@ -24,9 +26,12 @@ API_KEY = os.getenv("AGENTPAY_LLM_API_KEY", "")
 PROVIDER = "openai" if MODE == "openai" or (MODE == "auto" and BASE_URL) else "ollama"
 MODEL = os.getenv("AGENTPAY_LLM_MODEL", "qwen2.5:3b")
 TIMEOUT = float(os.getenv("AGENTPAY_LLM_TIMEOUT", "60"))
+# Режим рассуждений у моделей вроде Qwen3: auto — выключается для qwen3, off — всегда выключен, on — не трогаем.
+# Рассуждение здесь не нужно (задача — извлечь поля), а <think>…</think> перед JSON ломал разбор и в разы удлинял ответ.
+THINKING = os.getenv("AGENTPAY_LLM_THINKING", "auto")
 
 SYSTEM = """Ты извлекаешь ограничения покупки из поручения клиента. Сегодня {today} ({weekday}).
-Верни только JSON по схеме. Правила:
+Верни только один json-объект по схеме, без пояснений. Правила:
 - category: ssd, hdd, ram, gpu, monitor, headphones или other.
 - brand: производитель латиницей с заглавной буквы (Samsung, Kingston, Crucial, Western Digital, Seagate, Sony) или null.
 - capacity_gb: объём в гигабайтах (2 ТБ = 2000), только для накопителей и памяти, иначе null.
@@ -53,9 +58,23 @@ def _reason(e: Exception) -> str:
     return type(e).__name__
 
 
+_AVAILABLE: tuple[float, bool] = (0.0, False)
+AVAILABLE_TTL = 15.0  # секунд: внешний API не опрашивается на каждое поручение
+
+
 def available() -> bool:
+    global _AVAILABLE
     if MODE == "rules":
         return False
+    checked_at, ok = _AVAILABLE
+    if time.monotonic() - checked_at < AVAILABLE_TTL:
+        return ok
+    ok = _probe()
+    _AVAILABLE = (time.monotonic(), ok)
+    return ok
+
+
+def _probe() -> bool:
     try:
         if PROVIDER == "openai":
             if not BASE_URL:
@@ -73,10 +92,16 @@ def _auth() -> dict:
     return {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
 
 
+def no_think() -> bool:
+    return THINKING == "off" or (THINKING == "auto" and "qwen3" in MODEL.lower())
+
+
 def _messages(text: str, today: date, with_schema: bool) -> list[dict]:
     system = SYSTEM.format(today=today.isoformat(), weekday=WEEKDAYS_RU[today.weekday()])
     if with_schema:
         system += "\nJSON-схема ответа:\n" + json.dumps(Constraints.model_json_schema(), ensure_ascii=False)
+    if no_think():
+        system += "\n/no_think"  # мягкий переключатель Qwen3: работает с любым сервером, даже без chat_template_kwargs
     return [{"role": "system", "content": system}, {"role": "user", "content": text}]
 
 
@@ -84,7 +109,8 @@ def _call_ollama(text: str, today: date) -> str:
     r = httpx.post(
         f"{OLLAMA_URL}/api/chat",
         json={"model": MODEL, "stream": False, "format": Constraints.model_json_schema(),
-              "options": {"temperature": 0}, "messages": _messages(text, today, with_schema=False)},
+              "options": {"temperature": 0}, "messages": _messages(text, today, with_schema=False),
+              **({"think": False} if no_think() else {})},
         timeout=TIMEOUT,
     )
     r.raise_for_status()
@@ -92,15 +118,44 @@ def _call_ollama(text: str, today: date) -> str:
 
 
 def _call_openai(text: str, today: date) -> str:
-    r = httpx.post(
-        f"{BASE_URL}/chat/completions",
-        headers=_auth(),
-        json={"model": MODEL, "temperature": 0, "response_format": {"type": "json_object"},
-              "messages": _messages(text, today, with_schema=True)},
-        timeout=TIMEOUT,
-    )
+    body: dict = {"model": MODEL, "temperature": 0, "max_tokens": 512, "messages": _messages(text, today, with_schema=True),
+                  "response_format": {"type": "json_object"}}
+    if no_think():
+        body["chat_template_kwargs"] = {"enable_thinking": False}  # vLLM, SGLang, mlx_lm.server
+    r = httpx.post(f"{BASE_URL}/chat/completions", headers=_auth(), json=body, timeout=TIMEOUT)
+    if r.status_code in (400, 422):
+        # Часть серверов (LM Studio, старые MLX и прокси) не знает json_object и отклоняет запрос: повторяем без него,
+        # формат держит промпт со схемой, а разбор ниже вырезает всё вокруг JSON.
+        body.pop("response_format")
+        r = httpx.post(f"{BASE_URL}/chat/completions", headers=_auth(), json=body, timeout=TIMEOUT)
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    return r.json()["choices"][0]["message"]["content"] or ""
+
+
+THINK_BLOCK = re.compile(r"<think>.*?</think>", re.S | re.I)
+FENCE = re.compile(r"```(?:json)?", re.I)
+
+
+def parse_content(content: str) -> dict:
+    """Текст ответа модели → JSON-объект. Вырезается рассуждение <think>…</think> (в том числе без открывающего тега —
+    его съедает шаблон чата), ограждение ```json и текст вокруг. Незакрытое рассуждение — обрыв по лимиту токенов:
+    ответа в нём нет, даже если внутри черновик JSON."""
+    t = THINK_BLOCK.sub("", content)
+    low = t.lower()
+    if "</think>" in low:
+        t = t[low.rindex("</think>") + len("</think>"):]
+    elif "<think>" in low:
+        t = t[:low.index("<think>")]
+    t = FENCE.sub("", t)
+    decoder = json.JSONDecoder()
+    for m in re.finditer(r"\{", t):
+        try:
+            obj, _ = decoder.raw_decode(t, m.start())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    raise ValueError("в ответе модели нет JSON-объекта")
 
 
 def extract(text: str, today: date) -> Constraints:
@@ -111,7 +166,7 @@ def extract(text: str, today: date) -> Constraints:
         log.warning("LLM недоступна: %r", e)
         raise LLMUnavailable(_reason(e)) from e
     try:
-        return Constraints.model_validate(json.loads(content))
-    except (json.JSONDecodeError, ValidationError) as e:
+        return Constraints.model_validate(parse_content(content))
+    except (ValueError, ValidationError) as e:  # ValidationError — подкласс ValueError, указан для ясности
         log.warning("ответ модели не прошёл проверку схемы: %s", e)
         raise LLMUnavailable(f"ответ модели не прошёл проверку схемы ({type(e).__name__})") from e

@@ -32,6 +32,10 @@ services:
       AGENTPAY_OLLAMA_URL: http://ollama:11434
       AGENTPAY_LLM: ${AGENTPAY_LLM:-auto}
       AGENTPAY_LLM_MODEL: ${AGENTPAY_LLM_MODEL:-qwen2.5:3b}
+      # OpenAI-совместимый API вместо Ollama: vLLM в контуре, MLX-сервер, внешний DeepSeek (см. README о контуре банка)
+      AGENTPAY_LLM_BASE_URL: ${AGENTPAY_LLM_BASE_URL:-}
+      AGENTPAY_LLM_API_KEY: ${AGENTPAY_LLM_API_KEY:-}
+      AGENTPAY_LLM_THINKING: ${AGENTPAY_LLM_THINKING:-auto}
       AGENTPAY_TODAY: ${AGENTPAY_TODAY:-}
       AGENTPAY_COOKIE_SECURE: ${AGENTPAY_COOKIE_SECURE:-0}
     # Ollama не в depends_on: без модели backend разбирает поручения правилами и переключается на модель,

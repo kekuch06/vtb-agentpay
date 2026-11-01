@@ -6,15 +6,20 @@ install: install-backend
 install-backend:
 	cd backend && uv venv --python 3.12 .venv && uv pip install --python .venv --require-hashes -r requirements.txt -r requirements-dev.txt
 
+# Переменные из .env в корне (адрес и ключ модели, режим разбора). Уже заданные в окружении не перезаписываются,
+# поэтому AGENTPAY_LLM=rules make eval работает и при .env с моделью. make test и make test-pg .env не читают.
+DOTENV = if [ -f ../.env ]; then while IFS='=' read -r k v; do case "$$k" in ''|[\#]*) continue;; esac; \
+	[ -n "$$(printenv "$$k")" ] || export "$$k=$$v"; done < ../.env; fi;
+
 build:
 	cd frontend && npm run build
 
 # Один процесс: API + собранный фронтенд на http://localhost:8000
 run: build
-	cd backend && .venv/bin/uvicorn app.main:app --port 8000
+	cd backend && $(DOTENV) .venv/bin/uvicorn app.main:app --port 8000
 
 backend:
-	cd backend && .venv/bin/uvicorn app.main:app --reload --port 8000
+	cd backend && $(DOTENV) .venv/bin/uvicorn app.main:app --reload --port 8000
 
 frontend:
 	cd frontend && npm run dev
@@ -31,12 +36,16 @@ lint:
 	cd frontend && npx tsc -b
 
 eval:
-	cd backend && .venv/bin/python -m eval.run
+	cd backend && $(DOTENV) .venv/bin/python -m eval.run
 
-# Метрики с локальной моделью: нужен запущенный Ollama с моделью AGENTPAY_LLM_MODEL (по умолчанию qwen2.5:3b)
+# Метрики с моделью, без сверки и со сверкой кодом. Модель — из окружения или .env:
+#   Ollama:    AGENTPAY_LLM=ollama AGENTPAY_LLM_MODEL=qwen2.5:3b
+#   DeepSeek:  AGENTPAY_LLM=openai AGENTPAY_LLM_BASE_URL=https://api.deepseek.com AGENTPAY_LLM_MODEL=deepseek-chat AGENTPAY_LLM_API_KEY=…
+#   Qwen3 MLX: AGENTPAY_LLM=openai AGENTPAY_LLM_BASE_URL=http://127.0.0.1:8081/v1 AGENTPAY_LLM_MODEL=mlx-community/Qwen3-8B-4bit
+# Падает сразу, если модель недоступна: цифры правил не выдаются за цифры модели.
 eval-llm:
-	cd backend && AGENTPAY_LLM=ollama AGENTPAY_GROUNDING=off .venv/bin/python -m eval.run
-	cd backend && AGENTPAY_LLM=ollama AGENTPAY_GROUNDING=on .venv/bin/python -m eval.run
+	cd backend && $(DOTENV) AGENTPAY_EVAL_REQUIRE_LLM=1 AGENTPAY_GROUNDING=off .venv/bin/python -m eval.run
+	cd backend && $(DOTENV) AGENTPAY_EVAL_REQUIRE_LLM=1 AGENTPAY_GROUNDING=on .venv/bin/python -m eval.run
 
 # Пересборка зафиксированных версий backend после правки requirements*.in
 lock:
