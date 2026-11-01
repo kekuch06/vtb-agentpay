@@ -3,3 +3,6 @@
 -c requirements.txt
 pytest==9.2.0
 ruff==0.17.3
+# Свойства и фаззинг: hypothesis — разбор поручений, деньги, Verifier; schemathesis — API по OpenAPI (ни одного 500)
+hypothesis==6.170.1
+schemathesis==4.31.1
