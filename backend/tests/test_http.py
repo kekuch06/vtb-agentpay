@@ -86,3 +86,17 @@ def test_static_is_gzipped_but_api_is_not(client, dist):
     t = client.post("/api/tasks", json={"text": "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"},
                     headers={"Accept-Encoding": "gzip"})
     assert len(t.content) > 1024 and "content-encoding" not in t.headers  # ответы API не сжимаются (BREACH)
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+def test_oversized_api_body_is_rejected(client, chunked):
+    # Было: тело 30 МБ читалось и разбиралось целиком (без nginx, при make run). Самое длинное законное тело —
+    # поручение до 500 символов, поэтому всё больше 64 КБ — 413, в том числе без Content-Length (передача по частям).
+    big = ('{"text": "' + "x" * 200_000 + '"}').encode()
+    if chunked:
+        r = client.post("/api/tasks", content=iter([big[i:i + 8192] for i in range(0, len(big), 8192)]),
+                        headers={"content-type": "application/json"})
+    else:
+        r = client.post("/api/tasks", content=big, headers={"content-type": "application/json"})
+    assert r.status_code == 413
+    assert client.post("/api/tasks", json={"text": "SSD Samsung 2 ТБ"}).status_code == 200

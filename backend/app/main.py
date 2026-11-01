@@ -69,6 +69,55 @@ class StaticGZip(GZipMiddleware):
 
 app.add_middleware(StaticGZip, minimum_size=1024)
 
+MAX_BODY = 64 * 1024  # самое длинное законное тело — поручение до 500 символов
+
+
+class BodyLimit:
+    """413 на тело запроса к API больше MAX_BODY — и по Content-Length, и при передаче по частям без него.
+    За nginx стенда это уже ограничено, но make run и любой другой прокси не должны читать в память мегабайты."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/api/"):
+            return await self.app(scope, receive, send)
+        length = dict(scope["headers"]).get(b"content-length")
+        if length is not None:  # объявленную длину сервер не даст превысить — достаточно проверить её
+            if not length.isdigit() or int(length) > MAX_BODY:
+                return await self._reject(send)
+            return await self.app(scope, receive, send)
+        # Без Content-Length (передача по частям) тело читается здесь, до приложения, и не дальше лимита.
+        chunks, seen, more = [], 0, True
+        while more:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            chunks.append(message.get("body", b""))
+            seen += len(chunks[-1])
+            if seen > MAX_BODY:
+                return await self._reject(send)
+            more = message.get("more_body", False)
+        body, replayed = b"".join(chunks), False
+
+        async def replay():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+        await self.app(scope, replay, send)
+
+    @staticmethod
+    async def _reject(send):
+        body = '{"detail":"запрос слишком большой"}'.encode()
+        await send({"type": "http.response.start", "status": 413,
+                    "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+        await send({"type": "http.response.body", "body": body})
+
+
+app.add_middleware(BodyLimit)
+
 
 def owner(request: Request) -> str:
     return request.state.owner
