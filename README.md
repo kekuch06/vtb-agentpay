@@ -159,6 +159,7 @@ backend/
 frontend/         React + TypeScript, nginx.conf для стенда
 e2e/              сквозной сценарий в браузере (Playwright)
 docs/REVIEW.md    ревизия кода: дефекты, воспроизведение, исправления
+docs/NEXT_SESSION.md   передача работы: правила, окружение, что делать дальше
 docker-compose.yml · .env.example · .github/workflows/ci.yml
 ```
 
