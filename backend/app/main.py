@@ -34,8 +34,11 @@ COOKIE_SECURE = os.getenv("AGENTPAY_COOKIE_SECURE", "0") == "1"
 @app.middleware("http")
 async def session(request: Request, call_next):
     token = request.cookies.get(SESSION_COOKIE, "")
-    fresh = not re.fullmatch(r"[A-Za-z0-9_-]{43}", token)
-    if fresh:
+    valid = bool(re.fullmatch(r"[A-Za-z0-9_-]{43}", token))
+    # Сессию открывает только изменяющий запрос. Чтение без cookie получает пустого временного клиента и cookie
+    # не ставит: иначе опоздавший ответ на стартовый GET перезаписывал cookie сессии, в которой уже создано поручение.
+    fresh = not valid and request.method not in ("GET", "HEAD", "OPTIONS")
+    if not valid:
         token = secrets.token_urlsafe(32)
     request.state.owner = hashlib.sha256(token.encode()).hexdigest()[:32]
     response = await call_next(request)

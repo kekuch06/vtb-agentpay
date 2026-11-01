@@ -51,6 +51,26 @@ def test_limits_are_per_client(victim_and_attacker):
 
 
 def test_session_cookie_flags():
-    r = TestClient(app).get("/api/health")
+    r = TestClient(app).post("/api/tasks", json={"text": MAIN})
     cookie = r.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=strict" in cookie
+
+
+def test_read_requests_do_not_open_session():
+    # При загрузке страницы /api/health и /api/settings уходят параллельно и ещё без cookie. Если каждый ответ открывал
+    # свою сессию, опоздавший ответ перезаписывал cookie уже после того, как пользователь отправил поручение,
+    # и заказ по нему получал 404 (воспроизведено в браузере через nginx на холодном старте).
+    c = TestClient(app)
+    for path in ["/api/health", "/api/settings", "/api/audit", "/api/sandbox/device", "/"]:
+        assert "set-cookie" not in c.get(path).headers, path
+    assert c.get("/api/settings").json()["per_operation_limit_rub"] == 30_000
+
+
+def test_slow_startup_response_does_not_steal_task():
+    browser = TestClient(app)
+    late = TestClient(app).get("/api/health")  # запрос ушёл до появления cookie, ответ придёт последним
+    t = browser.post("/api/tasks", json={"text": MAIN}).json()
+    for k, v in late.cookies.items():
+        browser.cookies.set(k, v)
+    r = browser.post("/api/orders", json={"task_id": t["task_id"], "offer_id": t["recommended_offer_id"]})
+    assert r.status_code == 200

@@ -38,7 +38,7 @@ def owner_of(client) -> str:
 
     from app.main import SESSION_COOKIE
     if SESSION_COOKIE not in client.cookies:
-        client.get("/api/health")
+        client.put("/api/settings", json={"per_operation_limit_rub": 30_000})  # сессию открывает изменяющий запрос
     return hashlib.sha256(client.cookies[SESSION_COOKIE].encode()).hexdigest()[:32]
 
 
