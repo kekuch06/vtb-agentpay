@@ -334,3 +334,24 @@ test("после отказа поручение повторяется одно
   await page.getByRole("button", { name: "Повторить поручение" }).click();
   await expect(agentReplies(page)).toHaveCount(before + 1);
 });
+
+test("лимит на одну покупку: повышение только кодом с устройства, неверный код не меняет лимит", async ({ page }) => {
+  await openTab(page, "Sandbox");
+  const select = page.getByLabel("Лимит на одну покупку");
+  await select.selectOption("50000");
+  await expect(dialog(page)).toContainText("Подтвердите новый лимит");
+  await expect(select).toHaveValue("30000");  // без кода лимит прежний
+  const code = (await page.locator(".modal .push").innerText()).match(/\b\d{6}\b/)[0];
+  const wrong = code === "000000" ? "111111" : "000000";
+  await page.locator("input.code").fill(wrong);
+  await page.getByRole("button", { name: "Подтвердить лимит" }).click();
+  await expect(dialog(page).getByRole("alert")).toContainText("осталось попыток: 2");
+  await page.locator("input.code").fill(code);
+  await page.getByRole("button", { name: "Подтвердить лимит" }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(select).toHaveValue("50000");
+  await expect(page.locator(".hero-amount")).toHaveText(/50\s000/);
+  await select.selectOption("10000");  // понижение — сразу, без окна
+  await expect(select).toHaveValue("10000");
+  await expect(dialog(page)).toHaveCount(0);
+});

@@ -287,10 +287,23 @@ class PaymentFlow(RuleBasedStateMachine):
         r = self.client.post("/api/sandbox/scenario", json={"name": name, "offer_id": o["offer_id"], "order_id": o["order_id"]})
         assert r.status_code in (200, 404, 409), r.text
 
-    @rule(limit=st.sampled_from([5_000, 10_000, 20_000, 30_000, 50_000]))
-    def set_limit(self, limit):
-        assert self.client.put("/api/settings", json={"per_operation_limit_rub": limit}).status_code == 200
-        self.limit = limit
+    @rule(limit=st.sampled_from([5_000, 10_000, 20_000, 30_000, 50_000]), confirm_right=st.booleans())
+    def set_limit(self, limit, confirm_right):
+        r = self.client.put("/api/settings", json={"per_operation_limit_rub": limit})
+        assert r.status_code in (200, 202), r.text
+        if r.status_code == 200:
+            assert limit <= self.limit  # без кода лимит только понижается
+            self.limit = limit
+            return
+        req = r.json()["confirmation"]
+        code = next(m["code"] for m in self.client.get("/api/sandbox/device").json()["messages"] if m["challenge_id"] == req["request_id"])
+        if not confirm_right:
+            code = f"{(int(code) + 1) % 10**6:06d}"
+        c = self.client.post("/api/settings/confirm", json={"request_id": req["request_id"], "code": code})
+        assert c.status_code == (200 if confirm_right else 403), c.text
+        if confirm_right:
+            self.limit = limit
+        assert self.client.get("/api/settings").json()["per_operation_limit_rub"] == self.limit
 
     @invariant()
     def money_rules_hold(self):

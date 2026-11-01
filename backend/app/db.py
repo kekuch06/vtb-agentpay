@@ -37,6 +37,9 @@ TABLES = [
         bank_day TEXT NOT NULL, amount_kop BIGINT NOT NULL CHECK (amount_kop > 0), doc TEXT NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS payments_day ON payments (owner, bank_day)",
     "CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, doc TEXT NOT NULL)",
+    # Запросы на повышение лимита: применяются только после кода с устройства клиента.
+    """CREATE TABLE IF NOT EXISTS limit_requests (
+        request_id TEXT PRIMARY KEY, owner TEXT NOT NULL, used INTEGER NOT NULL, doc TEXT NOT NULL)""",
 ]
 AUDIT_COLUMNS = """ts TEXT NOT NULL, actor TEXT NOT NULL, zone TEXT NOT NULL, action TEXT NOT NULL,
         owner TEXT, task_id TEXT, order_id TEXT, data TEXT NOT NULL, prev_hash TEXT NOT NULL, hash TEXT NOT NULL"""
@@ -55,7 +58,7 @@ SCHEMA_PG = TABLES + [
     "CREATE OR REPLACE TRIGGER audit_no_update BEFORE UPDATE OR DELETE ON audit FOR EACH ROW EXECUTE FUNCTION audit_append_only()",
     "CREATE OR REPLACE TRIGGER audit_no_truncate BEFORE TRUNCATE ON audit FOR EACH STATEMENT EXECUTE FUNCTION audit_append_only()",
 ]
-ALL_TABLES = ["audit", "payments", "device_inbox", "challenges", "orders", "tasks", "settings"]
+ALL_TABLES = ["audit", "payments", "device_inbox", "challenges", "limit_requests", "orders", "tasks", "settings"]
 
 _lock = threading.RLock()
 _target: str | Path = os.getenv("AGENTPAY_DATABASE_URL") or os.getenv("AGENTPAY_DATABASE_PATH") or DEFAULT

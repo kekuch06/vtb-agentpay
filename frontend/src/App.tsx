@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import {
   account, api, ApiError, ddmm, errorText, hhmm, money, rub,
-  type AuditEntry, type Challenge, type CheckedOffer, type DeviceMessage, type Health, type Limits, type Order,
+  type AuditEntry, type Challenge, type CheckedOffer, type DeviceMessage, type Health, type LimitRequest, type Limits, type Order,
   type OrderStatus, type Payment, type PolicyResult, type Task,
 } from "./api";
 import { Icon, type IconName } from "./icons";
@@ -92,6 +92,7 @@ export default function App() {
   const [policyFresh, setPolicyFresh] = useState(false);
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [deviceMsg, setDeviceMsg] = useState<DeviceMessage | null>(null);
+  const [limitRequest, setLimitRequest] = useState<{ req: LimitRequest; device: DeviceMessage | null } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [payment, setPayment] = useState<Payment | null>(null);
   const [tab, setTab] = useState<Tab>("offers");
@@ -267,9 +268,34 @@ export default function App() {
     try {
       const s = await api.setLimit(v);
       setLimits(s);
+      if (s.confirmation) {
+        // Повышение — только кодом с устройства, как и оплата: агент или скрипт не расширит рамки сам.
+        const id = s.confirmation.request_id;
+        const inbox = await api.device().catch(() => ({ messages: [] as DeviceMessage[] }));
+        setLimitRequest({ req: s.confirmation, device: inbox.messages.find((m) => m.challenge_id === id) ?? null });
+        return;
+      }
       event("ok", `Лимит на одну покупку: ${rub(s.per_operation_limit_rub)}`);
     } catch (e) {
       event("bad", `Лимит не изменён. ${errorText(e)}`);
+    }
+  }
+
+  async function confirmLimit(code: string): Promise<{ error: string; resend: boolean } | null> {
+    if (!limitRequest) return null;
+    try {
+      const s = await api.confirmLimit(limitRequest.req.request_id, code);
+      setLimits(s); setLimitRequest(null);
+      event("ok", `Лимит на одну покупку повышен: ${rub(s.per_operation_limit_rub)}`);
+      return null;
+    } catch (e) {
+      const msg = errorText(e);
+      if (/закончились|не действует|истёк|не найден/.test(msg)) {
+        setLimitRequest(null);
+        event("bad", `Лимит не изменён. ${msg}`);
+        return null;
+      }
+      return { error: msg, resend: false };
     }
   }
 
@@ -389,6 +415,10 @@ export default function App() {
         ))}
       </nav>
 
+      {limitRequest && (
+        <LimitModal key={limitRequest.req.request_id} req={limitRequest.req} device={limitRequest.device} onConfirm={confirmLimit}
+                    onCancel={() => { setLimitRequest(null); event("warn", "Повышение лимита отменено, лимит прежний"); }} />
+      )}
       {challenge && showConfirm && order && (
         <ConfirmModal key={challenge.challenge_id} ch={challenge} device={deviceMsg} order={order} onConfirm={confirm}
                       onResend={checkout} onCancel={() => setShowConfirm(false)} />
@@ -728,6 +758,81 @@ function useDialogFocus(ref: { current: HTMLElement | null }, onEscape: () => vo
   }, [ref]);
 }
 
+function PushCard({ push, title }: { push: DeviceMessage | null; title: string }) {
+  return (
+    <div className="push" role="status">
+      <div className="push-head">
+        <span className="push-app" aria-hidden="true"><Icon name="wallet" size={14} /></span>
+        <span>Уведомление на устройстве</span>
+        <time>сейчас</time>
+      </div>
+      {push ? (
+        <>
+          <b>{title}</b>
+          <p>{push.kind === "limit" ? "Новый лимит на одну покупку." : `Получатель ${push.merchant_name}.`} Код <span className="push-code">{push.code}</span>, никому его не сообщайте.</p>
+        </>
+      ) : <p>Уведомление не пришло. Запросите код ещё раз.</p>}
+    </div>
+  );
+}
+
+function LimitModal({ req, device, onConfirm, onCancel }: {
+  req: LimitRequest; device: DeviceMessage | null;
+  onConfirm: (code: string) => Promise<{ error: string; resend: boolean } | null>; onCancel: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const inFlight = useRef(false);
+  useDialogFocus(box, onCancel);
+  const push = device?.challenge_id === req.request_id ? device : null;
+
+  async function submit() {
+    if (inFlight.current || code.length !== 6) return;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const r = await onConfirm(code);
+      setErr(r?.error ?? null);
+      if (r) setCode("");
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="limit-title" aria-describedby="limit-note" ref={box}>
+        <span className="grabber" aria-hidden="true" />
+        <PushCard push={push} title={`Код для повышения лимита до ${rub(req.value)}`} />
+        <h2 id="limit-title">Подтвердите новый лимит</h2>
+        <p className="amount">{rub(req.value)}</p>
+        <dl className="confirm-rows">
+          <div><dt>Лимит на одну покупку сейчас</dt><dd className="num">{rub(req.from)}</dd></div>
+          <div><dt>Станет</dt><dd className="num">{rub(req.value)}</dd></div>
+          <div><dt>Код действует до</dt><dd className="num">{hhmm(req.expires_at)}</dd></div>
+        </dl>
+        <p className="note lock" id="limit-note">
+          <Icon name="lock" size={18} />Лимит повышается только кодом с вашего устройства. Понизить его можно сразу, без кода.
+        </p>
+        <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
+          <label htmlFor="limit-code" className="field-label">Код из уведомления</label>
+          <input id="limit-code" className="code" inputMode="numeric" autoComplete="one-time-code" autoFocus maxLength={6} value={code}
+                 aria-invalid={err ? true : undefined} aria-describedby={err ? "limit-error" : undefined}
+                 onChange={(e) => { setCode(e.target.value.replace(/\D/g, "")); setErr(null); }} placeholder="6 цифр" />
+          {err && <p className="error" id="limit-error" role="alert">{err}</p>}
+          <div className="actions">
+            <button type="button" className="secondary" onClick={onCancel}>Отмена</button>
+            <button type="submit" className="primary" disabled={code.length !== 6 || busy}>Подтвердить лимит</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function ConfirmModal({ ch, device, order, onConfirm, onResend, onCancel }: {
   ch: Challenge; device: DeviceMessage | null; order: Order;
   onConfirm: (code: string) => Promise<{ error: string; resend: boolean } | null>; onResend: () => void; onCancel: () => void;
@@ -758,19 +863,7 @@ function ConfirmModal({ ch, device, order, onConfirm, onResend, onCancel }: {
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-note" ref={box}>
         <span className="grabber" aria-hidden="true" />
-        <div className="push" role="status">
-          <div className="push-head">
-            <span className="push-app" aria-hidden="true"><Icon name="wallet" size={14} /></span>
-            <span>Уведомление на устройстве</span>
-            <time>сейчас</time>
-          </div>
-          {push ? (
-            <>
-              <b>Код для оплаты {money(push.amount_kop)}</b>
-              <p>Получатель {push.merchant_name}. Код <span className="push-code">{push.code}</span>, никому его не сообщайте.</p>
-            </>
-          ) : <p>Уведомление не пришло. Запросите код ещё раз.</p>}
-        </div>
+        <PushCard push={push} title={push ? `Код для оплаты ${money(push.amount_kop)}` : ""} />
         <h2 id="confirm-title">Подтвердите оплату</h2>
         <p className="amount">{money(ch.amount_kop)}</p>
         <dl className="confirm-rows">
@@ -884,6 +977,7 @@ function SandboxView({ order, task, limits, onLimit, onScenario }: {
           {LIMIT_OPTIONS.map((v) => <option key={v} value={v}>{rub(v)}</option>)}
         </select>
       </div>
+      <p className="note">Понизить лимит можно сразу, повысить — только кодом с устройства.</p>
       <p className="note">
         Prompt injection уже лежит в каталоге «Комплект-Про»: карточка «СУПЕРЦЕНА» с инструкциями для агента и чужим счётом.
         Проверка целостности карточки её исключает.

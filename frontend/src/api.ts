@@ -26,7 +26,7 @@ export type Challenge = {
 };
 // Push на устройство клиента. Код не приходит в ответе checkout — только этим каналом.
 export type DeviceMessage = {
-  challenge_id: string; order_id: string; merchant_name: string; amount_kop: number; code: string; expires_at: string;
+  kind: "payment" | "limit"; challenge_id: string; order_id: string; merchant_name: string; amount_kop: number; code: string; expires_at: string;
 };
 export type Payment = { payment_id: string; order_id: string; amount_kop: number; payee_account: string; created_at: string };
 export type AuditEntry = {
@@ -35,6 +35,8 @@ export type AuditEntry = {
 };
 export type Health = { llm: { mode: string; model: string; available: boolean }; today: string; sandbox: boolean };
 export type Limits = { per_operation_limit_rub: number; daily_limit_rub: number; spent_today_kop: number };
+// Повышение лимита ждёт кода с устройства: сервер отвечает 202 и запросом подтверждения.
+export type LimitRequest = { request_id: string; value: number; from: number; expires_at: string };
 
 export class ApiError extends Error {
   constructor(public status: number, public body: any) {
@@ -67,7 +69,8 @@ export const api = {
     req<{ entries: AuditEntry[]; chain: { ok: boolean } }>(
       "GET", task_id ? `/api/audit?task_id=${encodeURIComponent(task_id)}` : "/api/audit"),
   settings: () => req<Limits>("GET", "/api/settings"),
-  setLimit: (v: number) => req<Limits>("PUT", "/api/settings", { per_operation_limit_rub: v }),
+  setLimit: (v: number) => req<Limits & { confirmation?: LimitRequest }>("PUT", "/api/settings", { per_operation_limit_rub: v }),
+  confirmLimit: (request_id: string, code: string) => req<Limits>("POST", "/api/settings/confirm", { request_id, code }),
   device: () => req<{ messages: DeviceMessage[] }>("GET", "/api/sandbox/device"),
   scenario: (name: string, extra: { offer_id?: string; order_id?: string } = {}) =>
     req<{ message: string }>("POST", "/api/sandbox/scenario", { name, ...extra }),

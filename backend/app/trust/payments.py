@@ -32,6 +32,65 @@ def settings_for(owner: str) -> dict:
     return {**settings, **store.get_settings(owner)}
 
 
+def _set_limit(owner: str, value: int) -> None:
+    store.put_settings(owner, {**store.get_settings(owner), "per_operation_limit_rub": value})
+    audit.log("user", "user", "settings.changed", {"per_operation_limit_rub": value}, owner=owner)
+
+
+def change_limit(owner: str, value: int) -> dict | None:
+    """Понижение лимита на одну покупку — сразу. Повышение — только кодом с устройства клиента: иначе тот, кто
+    получил доступ к сессии (скрипт, агент с API), сам расширял бы рамки, в которых платежи проходят Policy Engine.
+    Возвращает запрос подтверждения или None, если лимит уже изменён."""
+    with db.tx():
+        current = settings_for(owner)["per_operation_limit_rub"]
+        if value <= current:
+            _set_limit(owner, value)
+            return None
+        request_id = "lim_" + uuid.uuid4().hex[:10]
+        code = f"{secrets.randbelow(10**6):06d}"
+        expires = _now() + CHALLENGE_TTL
+        store.save_limit_request(owner, request_id, {"value": value, "from": current, "attempts": 0, "expires_at": expires.isoformat(),
+                                                     "code_mac": keys.mac("limit-otp", request_id, owner, str(value), code)})
+        store.push_to_device(owner, DeviceMessage(kind="limit", challenge_id=request_id, order_id="", merchant_name="Повышение лимита",
+                                                  amount_kop=value * 100, code=code, expires_at=expires))
+        audit.log("confirmation", "user", "settings.raise_requested", {"from": current, "to": value, "request_id": request_id}, owner=owner)
+        return {"request_id": request_id, "value": value, "from": current, "expires_at": expires.isoformat()}
+
+
+def confirm_limit(owner: str, request_id: str, code: str) -> None:
+    """Подтверждение повышения: одноразовый запрос, не больше MAX_CODE_ATTEMPTS неверных кодов, срок как у кода оплаты.
+    Отказ фиксируется в журнале и счётчике попыток до исключения, как и у подтверждения платежа."""
+    with db.tx():
+        outcome = _confirm_limit(owner, request_id, code)
+    if outcome is not None:
+        raise outcome
+
+
+def _confirm_limit(owner: str, request_id: str, code: str) -> Exception | None:
+    found = store.get_limit_request(owner, request_id)
+    if found is None:
+        return LookupError("запрос на изменение лимита не найден")
+    req, used = found
+
+    def reject(reason: str, message: str) -> PermissionError:
+        audit.log("confirmation", "user", "settings.raise_rejected", {"reason": reason, "request_id": request_id}, owner=owner)
+        return PermissionError(message)
+    if used:
+        return reject("closed", "этот код больше не действует, запросите изменение лимита заново")
+    if _now() >= datetime.fromisoformat(req["expires_at"]):
+        store.update_limit_request(request_id, req, used=True)
+        return reject("expired", "срок кода истёк, запросите изменение лимита заново")
+    if not hmac.compare_digest(keys.mac("limit-otp", request_id, owner, str(req["value"]), code), req["code_mac"]):
+        req["attempts"] += 1
+        left = MAX_CODE_ATTEMPTS - req["attempts"]
+        store.update_limit_request(request_id, req, used=left <= 0)
+        return reject("wrong_code", "неверный код, попытки закончились — лимит не изменён" if left <= 0
+                      else f"неверный код, осталось попыток: {left}")
+    store.update_limit_request(request_id, req, used=True)
+    _set_limit(owner, req["value"])
+    return None
+
+
 class PolicyViolation(Exception):
     def __init__(self, results: list[PolicyResult]):
         self.results = results

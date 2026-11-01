@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -157,6 +157,11 @@ class SettingsIn(BaseModel):
     per_operation_limit_rub: int = Field(ge=100, le=1_000_000)
 
 
+class LimitConfirmIn(BaseModel):
+    request_id: str = Field(max_length=40)
+    code: str = Field(pattern=r"^\d{6}$")
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "llm": {"mode": llm.MODE, "model": llm.MODEL, "available": llm.available(block=False)}, "today": today().isoformat(),
@@ -246,9 +251,21 @@ def get_settings(me: str = Depends(owner)):
 
 @app.put("/api/settings")
 def put_settings(body: SettingsIn, me: str = Depends(owner)):
-    with db.tx():
-        store.put_settings(me, {**store.get_settings(me), **body.model_dump()})
-        audit.log("user", "user", "settings.changed", body.model_dump(), owner=me)
+    """Понижение лимита — 200 и новые лимиты. Повышение — 202 и запрос подтверждения: код уходит на устройство."""
+    request = payments.change_limit(me, body.per_operation_limit_rub)
+    if request is None:
+        return _limits(me)
+    return JSONResponse({**_limits(me), "confirmation": request}, status_code=202)
+
+
+@app.post("/api/settings/confirm")
+def confirm_settings(body: LimitConfirmIn, me: str = Depends(owner)):
+    try:
+        payments.confirm_limit(me, body.request_id, body.code)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
     return _limits(me)
 
 

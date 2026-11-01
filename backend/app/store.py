@@ -62,10 +62,28 @@ def push_to_device(owner: str, m: DeviceMessage) -> None:
 
 
 def device_messages(owner: str) -> list[DeviceMessage]:
-    """Коды по действующим запросам подтверждения этого клиента."""
-    rows = db.query("SELECT d.doc FROM device_inbox d JOIN challenges c ON c.challenge_id = d.challenge_id "
-                    "WHERE d.owner = ? AND c.used = 0 ORDER BY d.created_at", (owner,))
+    """Коды по действующим запросам подтверждения этого клиента: оплаты заказов и повышения лимита."""
+    rows = db.query("SELECT d.doc FROM device_inbox d LEFT JOIN challenges c ON c.challenge_id = d.challenge_id "
+                    "LEFT JOIN limit_requests l ON l.request_id = d.challenge_id AND l.owner = d.owner "
+                    "WHERE d.owner = ? AND (c.used = 0 OR l.used = 0) ORDER BY d.created_at", (owner,))
     return [DeviceMessage.model_validate_json(r[0]) for r in rows]
+
+
+def save_limit_request(owner: str, request_id: str, doc: dict) -> None:
+    """Новый запрос на повышение лимита; прежние запросы клиента больше не действуют."""
+    with db.tx():
+        db.execute("UPDATE limit_requests SET used = 1 WHERE owner = ?", (owner,))
+        db.execute("INSERT INTO limit_requests (request_id, owner, used, doc) VALUES (?, ?, 0, ?)",
+                   (request_id, owner, json.dumps(doc)))
+
+
+def get_limit_request(owner: str, request_id: str) -> tuple[dict, bool] | None:
+    rows = db.query("SELECT doc, used FROM limit_requests WHERE request_id = ? AND owner = ?", (request_id, owner))
+    return (json.loads(rows[0][0]), bool(rows[0][1])) if rows else None
+
+
+def update_limit_request(request_id: str, doc: dict, used: bool) -> None:
+    db.execute("UPDATE limit_requests SET doc = ?, used = ? WHERE request_id = ?", (json.dumps(doc), int(used), request_id))
 
 
 def expire_challenges(order_id: str, at: datetime) -> int:
@@ -115,5 +133,5 @@ def all_payments() -> list[Payment]:
 def clear() -> None:
     """Удаляет поручения, заказы и платежи (не журнал): прогон метрик начинает каждое задание с чистого клиента."""
     with db.tx():
-        for table in ("payments", "device_inbox", "challenges", "orders", "tasks", "settings"):
+        for table in ("payments", "device_inbox", "challenges", "limit_requests", "orders", "tasks", "settings"):
             db.execute(f"DELETE FROM {table}")

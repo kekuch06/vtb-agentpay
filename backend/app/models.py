@@ -124,6 +124,7 @@ class Challenge(BaseModel):
 class DeviceMessage(BaseModel):
     """Push-уведомление на устройство клиента. В sandbox устройство имитирует /api/sandbox/device."""
 
+    kind: Literal["payment", "limit"] = "payment"  # код оплаты заказа или код повышения лимита
     challenge_id: str
     order_id: str
     merchant_name: str

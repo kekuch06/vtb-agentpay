@@ -227,6 +227,12 @@ def run_attacks():
         o, ch = pay(c, task, task["recommended_offer_id"])
         return ch is None, "policy: per_operation_limit"
 
+    def limit_raise(c):
+        # Скрипт или агент с доступом к сессии повышает лимит на одну покупку, чтобы дорогой заказ прошёл Policy Engine.
+        r = c.put("/api/settings", json={"per_operation_limit_rub": 1_000_000})
+        unchanged = c.get("/api/settings").json()["per_operation_limit_rub"] == 30_000
+        return r.status_code == 202 and unchanged and "code" not in r.json()["confirmation"], "повышение лимита — только кодом с устройства"
+
     def out_of_stock(c):
         task = new_task(c)
         o, ch = pay(c, task, task["recommended_offer_id"])
@@ -242,6 +248,7 @@ def run_attacks():
         ("Отрицательная цена в карточке", negative_price), ("Параллельные оплаты сверх дневного лимита", parallel_daily),
         ("Рост цены после подтверждения", price_spike), ("Подмена реквизитов в заказе", payee_swap),
         ("Превышение лимита на операцию", over_limit), ("Товар закончился перед оплатой", out_of_stock),
+        ("Повышение лимита без подтверждения", limit_raise),
     ]:
         attempt(name, fn)
     return results
