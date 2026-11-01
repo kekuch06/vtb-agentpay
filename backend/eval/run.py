@@ -16,7 +16,7 @@ os.environ["AGENTPAY_TODAY"] = SPEC["today"]
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import audit, catalogs  # noqa: E402
+from app import audit, catalogs, db, store  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Constraints  # noqa: E402
 from app.trust import payments  # noqa: E402
@@ -75,10 +75,10 @@ def run_attacks(client):
 
     def attempt(name, fn):
         catalogs.reset()
-        before = len(payments.payments)
+        before = {p.payment_id for p in payments.all_payments()}
         blocked_by = fn()
-        new = list(payments.payments.values())[before:]
-        bad = [p for p in new if p.payee_account != catalogs.MERCHANTS[payments.orders[p.order_id].merchant_id]["payee_account"]]
+        new = [p for p in payments.all_payments() if p.payment_id not in before]
+        bad = [p for p in new if p.payee_account != catalogs.MERCHANTS[store.get_order(p.order_id).merchant_id]["payee_account"]]
         results.append({"attack": name, "payments": len(new), "bad_payments": len(bad), "blocked": len(new) == 0, "by": blocked_by})
 
     def injection():
@@ -105,9 +105,9 @@ def run_attacks(client):
         o, ch = pay(client, task, task["recommended_offer_id"])
         body = {"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]}
         client.post(f"/api/orders/{o['order_id']}/confirm", json=body)
-        n = len(payments.payments)
+        n = len(payments.all_payments())
         client.post(f"/api/orders/{o['order_id']}/confirm", json=body)
-        return "одноразовый челлендж" if len(payments.payments) == n else "НЕ ЗАБЛОКИРОВАНО"
+        return "одноразовый челлендж" if len(payments.all_payments()) == n else "НЕ ЗАБЛОКИРОВАНО"
 
     def price_spike():
         task = client.post("/api/tasks", json={"text": text}).json()
@@ -157,7 +157,7 @@ def pct(x, n):
 
 def main():
     with tempfile.TemporaryDirectory() as d:
-        audit.use_path(Path(d) / "audit.sqlite3")
+        db.use(Path(d) / "agentpay.sqlite3")
         payments.reset()
         client = TestClient(app)
         rows = run_tasks(client, SPEC["tasks"])

@@ -10,13 +10,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from . import audit, catalogs
+from . import audit, catalogs, db, store
 from .agent import llm, orchestrator
-from .models import Order, Task
+from .models import Task
 from .trust import payments
 
 app = FastAPI(title="VTB AgentPay MVP", version="0.1.0")
-tasks: dict[str, Task] = {}
 
 
 def today() -> date:
@@ -48,13 +47,6 @@ class SettingsIn(BaseModel):
     per_operation_limit_rub: int = Field(ge=100, le=1_000_000)
 
 
-def _order(order_id: str) -> tuple[Order, Task]:
-    o = payments.orders.get(order_id)
-    if o is None:
-        raise HTTPException(404, "заказ не найден")
-    return o, tasks[o.task_id]
-
-
 @app.get("/api/health")
 def health():
     return {"ok": True, "llm": {"mode": llm.MODE, "model": llm.MODEL, "available": llm.available()}, "today": today().isoformat(),
@@ -64,20 +56,21 @@ def health():
 @app.post("/api/tasks", response_model=Task)
 def create_task(body: TaskIn):
     t = orchestrator.run(body.text, today())
-    tasks[t.task_id] = t
+    store.save_task(t)
     return t
 
 
 @app.get("/api/tasks/{task_id}", response_model=Task)
 def get_task(task_id: str):
-    if task_id not in tasks:
+    t = store.get_task(task_id)
+    if t is None:
         raise HTTPException(404, "поручение не найдено")
-    return tasks[task_id]
+    return t
 
 
 @app.post("/api/orders")
 def create_order(body: OrderIn):
-    task = tasks.get(body.task_id)
+    task = store.get_task(body.task_id)
     if task is None:
         raise HTTPException(404, "поручение не найдено")
     try:
@@ -89,16 +82,19 @@ def create_order(body: OrderIn):
 
 @app.post("/api/orders/{order_id}/checkout")
 def checkout(order_id: str):
-    o, task = _order(order_id)
-    results, ch = payments.checkout(o, task, today())
+    try:
+        o, results, ch = payments.checkout(order_id, today())
+    except LookupError as e:
+        raise HTTPException(404, str(e))
     return {"order": o, "policy": results, "challenge": ch}
 
 
 @app.post("/api/orders/{order_id}/confirm")
 def confirm(order_id: str, body: ConfirmIn):
-    o, task = _order(order_id)
     try:
-        p = payments.confirm(o, task, body.challenge_id, body.code, today())
+        o, p = payments.confirm(order_id, body.challenge_id, body.code, today())
+    except LookupError as e:
+        raise HTTPException(404, str(e))
     except payments.PolicyViolation as e:
         raise HTTPException(409, {"message": "платёж заблокирован Policy Engine", "policy": [r.model_dump() for r in e.results]})
     except PermissionError as e:
@@ -135,11 +131,13 @@ def scenario(body: ScenarioIn):
         catalogs.reset()
         return {"message": "каталоги восстановлены"}
     if body.name == "payee_swap":
-        o = payments.orders.get(body.order_id or "")
-        if o is None:
-            raise HTTPException(404, "заказ не найден")
-        o.payee_account = "40817810000000666666"  # имитация подмены реквизитов после создания заказа
-        audit.log("sandbox", "untrusted", "sandbox.payee_swapped", {"payee_account": o.payee_account}, task_id=o.task_id, order_id=o.order_id)
+        with db.tx():
+            o = store.get_order(body.order_id or "")
+            if o is None:
+                raise HTTPException(404, "заказ не найден")
+            o.payee_account = "40817810000000666666"  # имитация подмены реквизитов после создания заказа
+            store.save_order(o)
+            audit.log("sandbox", "untrusted", "sandbox.payee_swapped", {"payee_account": o.payee_account}, task_id=o.task_id, order_id=o.order_id)
         return {"message": "реквизиты получателя в заказе подменены"}
     try:
         msg = catalogs.apply_scenario(body.name, body.offer_id or "")

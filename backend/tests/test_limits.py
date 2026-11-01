@@ -1,6 +1,7 @@
 """Дневной лимит считается по банковскому дню (по умолчанию московское время), а не по дате UTC."""
 from datetime import datetime, timezone
 
+from app import store
 from app.models import Payment
 from app.trust import payments
 
@@ -8,8 +9,9 @@ MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставко�
 
 
 def _earlier_payment(at: datetime, amount: int) -> None:
-    payments.payments["pay_prev"] = Payment(payment_id="pay_prev", order_id="ord_prev", task_id="task_prev",
-                                            amount_kop=amount * 100, payee_account="40702810900000000001", status="succeeded", created_at=at)
+    p = Payment(payment_id="pay_prev", order_id="ord_prev", task_id="task_prev",
+                amount_kop=amount * 100, payee_account="40702810900000000001", status="succeeded", created_at=at)
+    store.insert_payment(p, payments.bank_day(at))
 
 
 def _daily_rule(client, monkeypatch, now: datetime):

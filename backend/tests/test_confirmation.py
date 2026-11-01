@@ -31,7 +31,7 @@ def test_rejected_order_cannot_get_new_code(client):
         _confirm(client, o, ch, _wrong(ch))
     r = _checkout(client, o)
     assert r["challenge"] is None and r["order"]["status"] == "rejected"
-    assert payments.payments == {}
+    assert payments.all_payments() == []
 
 
 def test_new_code_does_not_reset_attempts(client):
@@ -43,7 +43,7 @@ def test_new_code_does_not_reset_attempts(client):
     assert ch2 is not None
     assert _confirm(client, o, ch2, _wrong(ch2)).status_code == 403  # третья неверная попытка по заказу
     assert _confirm(client, o, ch2, ch2["sandbox_code"]).status_code == 403
-    assert payments.payments == {}
+    assert payments.all_payments() == []
 
 
 def test_brute_force_across_checkouts_is_bounded(client):
@@ -57,7 +57,7 @@ def test_brute_force_across_checkouts_is_bounded(client):
             if _confirm(client, o, ch, _wrong(ch)).status_code == 403:
                 guesses += 1
     assert guesses <= 3
-    assert payments.payments == {}
+    assert payments.all_payments() == []
 
 
 def test_code_resend_is_limited(client):

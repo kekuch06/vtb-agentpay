@@ -50,7 +50,7 @@ def test_no_payment_without_confirmation(client):
     t = _task(client)
     o = _order(client, t).json()["order"]
     client.post(f"/api/orders/{o['order_id']}/checkout")
-    assert payments.payments == {}
+    assert payments.all_payments() == []
 
 
 def test_wrong_code_and_lockout(client):
@@ -63,7 +63,7 @@ def test_wrong_code_and_lockout(client):
         assert r.status_code == 403
     r = client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
     assert r.status_code == 403
-    assert payments.payments == {}
+    assert payments.all_payments() == []
 
 
 def test_replay_confirmation(client):
@@ -73,7 +73,7 @@ def test_replay_confirmation(client):
     body = {"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]}
     assert client.post(f"/api/orders/{o['order_id']}/confirm", json=body).status_code == 200
     assert client.post(f"/api/orders/{o['order_id']}/confirm", json=body).status_code == 403
-    assert len(payments.payments) == 1
+    assert len(payments.all_payments()) == 1
 
 
 def test_challenge_bound_to_order(client):
@@ -102,7 +102,7 @@ def test_price_spike_after_confirmation_request(client):
     client.post("/api/sandbox/scenario", json={"name": "price_spike", "offer_id": t["recommended_offer_id"]})
     r = client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
     assert r.status_code == 409
-    assert payments.payments == {}
+    assert payments.all_payments() == []
 
 
 def test_out_of_stock(client):
@@ -129,7 +129,7 @@ def test_payee_swap_after_challenge(client):
     client.post("/api/sandbox/scenario", json={"name": "payee_swap", "order_id": o["order_id"]})
     r = client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
     assert r.status_code in (403, 409)
-    assert payments.payments == {}
+    assert payments.all_payments() == []
 
 
 def test_over_limit(client):
@@ -144,9 +144,10 @@ def test_over_limit(client):
 def test_audit_chain_detects_tampering(client, tmp_path):
     import sqlite3
     from app import audit
+    from app import db as app_db
     _task(client)
     assert audit.verify_chain()["ok"]
-    db = sqlite3.connect(audit.DB_PATH)
+    db = sqlite3.connect(app_db.current())
     db.execute("DROP TRIGGER audit_no_update")
     db.execute("UPDATE audit SET data = '{}' WHERE id = 1")
     db.commit()
@@ -156,9 +157,9 @@ def test_audit_chain_detects_tampering(client, tmp_path):
 def test_audit_is_append_only(client):
     import sqlite3
     import pytest
-    from app import audit
+    from app import db as app_db
     _task(client)
-    db = sqlite3.connect(audit.DB_PATH)
+    db = sqlite3.connect(app_db.current())
     with pytest.raises(sqlite3.DatabaseError):
         db.execute("DELETE FROM audit")
 
@@ -192,7 +193,7 @@ def test_card_changed_after_confirmation_request_blocked(client, change):
     catalogs._find_raw(t["recommended_offer_id"]).update(CARD_CHANGES[change])
     r = client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
     assert r.status_code == 409
-    assert payments.payments == {}
+    assert payments.all_payments() == []
 
 
 def _pay(client, o):
@@ -209,7 +210,7 @@ def test_one_purchase_per_task(client):
     assert _pay(client, oa).status_code == 200
     r = client.post(f"/api/orders/{ob['order_id']}/checkout").json()
     assert r["challenge"] is None and any(p["rule"] == "task_open" and not p["passed"] for p in r["policy"])
-    assert len(payments.payments) == 1
+    assert len(payments.all_payments()) == 1
 
 
 def test_one_purchase_per_task_when_both_awaiting(client):
@@ -221,4 +222,4 @@ def test_one_purchase_per_task_when_both_awaiting(client):
     assert client.post(f"/api/orders/{oa['order_id']}/confirm", json={"challenge_id": cha["challenge_id"], "code": cha["sandbox_code"]}).status_code == 200
     r = client.post(f"/api/orders/{ob['order_id']}/confirm", json={"challenge_id": chb["challenge_id"], "code": chb["sandbox_code"]})
     assert r.status_code == 409
-    assert sum(p.amount_kop for p in payments.payments.values()) <= 16_000_00
+    assert sum(p.amount_kop for p in payments.all_payments()) <= 16_000_00

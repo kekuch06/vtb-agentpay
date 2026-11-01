@@ -2,6 +2,8 @@
 
 Ни одна функция здесь не принимает текст модели. Заказ собирается из повторно запрошенной карточки
 продавца и реквизитов из доверенного реестра; платёж исполняется только по подтверждённому челленджу.
+Каждая операция — одна транзакция хранилища (db.tx): заказ перечитывается внутри неё, поэтому проверки и
+изменения видят согласованное состояние даже при параллельных запросах.
 """
 from __future__ import annotations
 
@@ -13,7 +15,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from .. import audit, catalogs
+from .. import audit, catalogs, db, store
 from ..models import Challenge, Order, Payment, PolicyResult, Task
 from .verifier import _money, _rub, check_offer
 
@@ -25,10 +27,6 @@ TERMINAL = ("paid", "rejected", "expired")  # из этих статусов з�
 BANK_TZ = ZoneInfo(os.getenv("AGENTPAY_TZ", "Europe/Moscow"))
 
 settings = {"per_operation_limit_rub": 30_000, "daily_limit_rub": 100_000}
-
-orders: dict[str, Order] = {}
-challenges: dict[str, dict] = {}  # challenge_id -> {challenge, order_hash, attempts, used}
-payments: dict[str, Payment] = {}
 
 
 class PolicyViolation(Exception):
@@ -72,11 +70,12 @@ def create_order(task: Task, offer_id: str, today: date) -> Order:
         created_at=now, expires_at=now + ORDER_TTL, order_hash="",
     )
     o.order_hash = order_hash(o)
-    orders[o.order_id] = o
-    audit.log("order-service", "trusted", "order.created", {
-        "offer_id": offer_id, "merchant": o.merchant_id, "amount_kop": o.amount_kop,
-        "payee_account": o.payee_account, "price_at_search_kop": checked.offer.total_kop,
-    }, task_id=task.task_id, order_id=o.order_id)
+    with db.tx():
+        store.save_order(o)
+        audit.log("order-service", "trusted", "order.created", {
+            "offer_id": offer_id, "merchant": o.merchant_id, "amount_kop": o.amount_kop,
+            "payee_account": o.payee_account, "price_at_search_kop": checked.offer.total_kop,
+        }, task_id=task.task_id, order_id=o.order_id)
     return o
 
 
@@ -110,7 +109,7 @@ def evaluate(o: Order, task: Task, today: date) -> list[PolicyResult]:
                           else f"карточка продавца изменилась, условия не выполняются: {', '.join(lost)}"))
     # Поручение — одна покупка: второй заказ по нему (двойной клик, другой продавец) уже не оплачивается,
     # иначе два заказа по поручению «до 16 тысяч» в сумме выходили за бюджет клиента.
-    paid_by_task = [p for p in payments.values() if p.task_id == o.task_id]
+    paid_by_task = store.payments_for_task(o.task_id)
     r.append(PolicyResult(rule="task_open", passed=not paid_by_task,
                           detail="по поручению ещё нет оплаты" if not paid_by_task
                           else f"по поручению уже оплачен заказ {paid_by_task[0].order_id}"))
@@ -122,7 +121,7 @@ def evaluate(o: Order, task: Task, today: date) -> list[PolicyResult]:
     limit_ok = o.amount_kop <= limit * 100
     r.append(PolicyResult(rule="per_operation_limit", passed=limit_ok,
                           detail=f"лимит на операцию {_rub(limit)}" + ("" if limit_ok else " превышен")))
-    spent = sum(p.amount_kop for p in payments.values() if bank_day(p.created_at) == bank_day(_now()))
+    spent = store.spent_on(bank_day(_now()))
     daily_ok = spent + o.amount_kop <= settings["daily_limit_rub"] * 100
     r.append(PolicyResult(rule="daily_limit", passed=daily_ok,
                           detail=f"дневной лимит: потрачено {_money(spent)} из {_rub(settings['daily_limit_rub'])}" + ("" if daily_ok else ", превышен")))
@@ -149,60 +148,81 @@ def _reject_confirmation(o: Order, reason: str, message: str, **data) -> Permiss
     return PermissionError(message)
 
 
-def checkout(o: Order, task: Task, today: date) -> tuple[list[PolicyResult], Challenge | None]:
-    results = evaluate(o, task, today)
-    if not any(not x.passed for x in results) and o.challenges_issued >= MAX_CHALLENGES:
-        results.append(PolicyResult(rule="confirmation_limit", passed=False,
-                                    detail=f"код подтверждения запрошен {MAX_CHALLENGES} раза, заказ отклонён"))
-    failed = [x for x in results if not x.passed]
-    audit.log("policy-engine", "trusted", "policy.evaluated", {
-        "passed": not failed, "failed_rules": [x.rule for x in failed],
-    }, task_id=o.task_id, order_id=o.order_id)
-    if failed:
-        _close(o, results)
-        return results, None
-    ch = Challenge(
-        challenge_id="ch_" + uuid.uuid4().hex[:10], order_id=o.order_id, amount_kop=o.amount_kop,
-        payee_account=o.payee_account, merchant_name=o.merchant_name, expires_at=_now() + CHALLENGE_TTL,
-        sandbox_code=f"{secrets.randbelow(10**6):06d}",
-    )
-    for e in challenges.values():  # предыдущие запросы подтверждения по этому заказу больше не действуют
-        if e["challenge"].order_id == o.order_id:
-            e["used"] = True
-    challenges[ch.challenge_id] = {"challenge": ch, "order_hash": o.order_hash, "used": False}
-    o.challenges_issued += 1
-    o.status = "awaiting_confirmation"
-    audit.log("confirmation", "user", "confirmation.requested", {
-        "challenge_id": ch.challenge_id, "amount_kop": ch.amount_kop, "payee_account": ch.payee_account,
-        "issued": o.challenges_issued,
-    }, task_id=o.task_id, order_id=o.order_id)
-    return results, ch
+def _load(order_id: str) -> tuple[Order, Task]:
+    o = store.get_order(order_id)
+    task = store.get_task(o.task_id) if o else None
+    if o is None or task is None:
+        raise LookupError("заказ не найден")
+    return o, task
 
 
-def confirm(o: Order, task: Task, challenge_id: str, code: str, today: date) -> Payment:
-    entry = challenges.get(challenge_id)
-    if entry is None or entry["challenge"].order_id != o.order_id:
-        raise _reject_confirmation(o, "unknown_challenge", "подтверждение не найдено для этого заказа")
-    ch: Challenge = entry["challenge"]
-    if entry["used"]:
-        raise _reject_confirmation(o, "replay", "подтверждение уже использовано")
+def checkout(order_id: str, today: date) -> tuple[Order, list[PolicyResult], Challenge | None]:
+    with db.tx():
+        o, task = _load(order_id)
+        results = evaluate(o, task, today)
+        if not any(not x.passed for x in results) and o.challenges_issued >= MAX_CHALLENGES:
+            results.append(PolicyResult(rule="confirmation_limit", passed=False,
+                                        detail=f"код подтверждения запрошен {MAX_CHALLENGES} раза, заказ отклонён"))
+        failed = [x for x in results if not x.passed]
+        audit.log("policy-engine", "trusted", "policy.evaluated", {
+            "passed": not failed, "failed_rules": [x.rule for x in failed],
+        }, task_id=o.task_id, order_id=o.order_id)
+        if failed:
+            _close(o, results)
+            store.save_order(o)
+            return o, results, None
+        ch = Challenge(
+            challenge_id="ch_" + uuid.uuid4().hex[:10], order_id=o.order_id, amount_kop=o.amount_kop,
+            payee_account=o.payee_account, merchant_name=o.merchant_name, expires_at=_now() + CHALLENGE_TTL,
+            sandbox_code=f"{secrets.randbelow(10**6):06d}",
+        )
+        store.save_challenge(ch, o.order_hash)  # предыдущие запросы подтверждения по этому заказу больше не действуют
+        o.challenges_issued += 1
+        o.status = "awaiting_confirmation"
+        store.save_order(o)
+        audit.log("confirmation", "user", "confirmation.requested", {
+            "challenge_id": ch.challenge_id, "amount_kop": ch.amount_kop, "payee_account": ch.payee_account,
+            "issued": o.challenges_issued,
+        }, task_id=o.task_id, order_id=o.order_id)
+        return o, results, ch
+
+
+def confirm(order_id: str, challenge_id: str, code: str, today: date) -> tuple[Order, Payment]:
+    # Отказ (неверный код, истёкший срок) тоже меняет состояние — счётчик попыток и журнал — и должен быть
+    # зафиксирован, поэтому исключение возбуждается после выхода из транзакции, а не откатывает её.
+    with db.tx():
+        o, task = _load(order_id)
+        outcome = _confirm(o, task, challenge_id, code, today)
+        store.save_order(o)
+    if isinstance(outcome, Exception):
+        raise outcome
+    return o, outcome
+
+
+def _confirm(o: Order, task: Task, challenge_id: str, code: str, today: date) -> Payment | Exception:
+    found = store.get_challenge(challenge_id)
+    if found is None or found[0].order_id != o.order_id:
+        return _reject_confirmation(o, "unknown_challenge", "подтверждение не найдено для этого заказа")
+    ch, hash_at_request, used = found
+    if used:
+        return _reject_confirmation(o, "replay", "подтверждение уже использовано")
     if o.status != "awaiting_confirmation" or o.code_attempts >= MAX_CODE_ATTEMPTS:
-        raise _reject_confirmation(o, "order_closed", "заказ закрыт, оформите новый")
+        return _reject_confirmation(o, "order_closed", "заказ закрыт, оформите новый")
     if _now() >= ch.expires_at:
-        entry["used"] = True
-        raise _reject_confirmation(o, "expired", "срок подтверждения истёк, запросите новый код")
-    if entry["order_hash"] != order_hash(o):
-        entry["used"] = True
-        raise _reject_confirmation(o, "order_changed", "заказ изменился после запроса подтверждения")
+        store.use_challenge(challenge_id)
+        return _reject_confirmation(o, "expired", "срок подтверждения истёк, запросите новый код")
+    if not hmac.compare_digest(hash_at_request, order_hash(o)):
+        store.use_challenge(challenge_id)
+        return _reject_confirmation(o, "order_changed", "заказ изменился после запроса подтверждения")
     if not hmac.compare_digest(code, ch.sandbox_code):
         o.code_attempts += 1
         left = MAX_CODE_ATTEMPTS - o.code_attempts
         if left <= 0:
-            entry["used"] = True
+            store.use_challenge(challenge_id)
             o.status = "rejected"
-            raise _reject_confirmation(o, "wrong_code", "превышено число попыток, заказ отклонён", attempt=o.code_attempts)
-        raise _reject_confirmation(o, "wrong_code", f"неверный код подтверждения, осталось попыток: {left}", attempt=o.code_attempts)
-    entry["used"] = True
+            return _reject_confirmation(o, "wrong_code", "превышено число попыток, заказ отклонён", attempt=o.code_attempts)
+        return _reject_confirmation(o, "wrong_code", f"неверный код подтверждения, осталось попыток: {left}", attempt=o.code_attempts)
+    store.use_challenge(challenge_id)
     audit.log("user", "user", "confirmation.approved", {"challenge_id": challenge_id}, task_id=o.task_id, order_id=o.order_id)
 
     # Повторная проверка политик непосредственно перед списанием: цена или наличие могли измениться.
@@ -212,14 +232,14 @@ def confirm(o: Order, task: Task, challenge_id: str, code: str, today: date) -> 
         _close(o, results)
         audit.log("policy-engine", "trusted", "policy.blocked_at_payment", {"failed_rules": [x.rule for x in failed]},
                   task_id=o.task_id, order_id=o.order_id)
-        raise PolicyViolation(results)
+        return PolicyViolation(results)
     return _sandbox_pay(o)
 
 
 def _sandbox_pay(o: Order) -> Payment:
     p = Payment(payment_id="pay_" + uuid.uuid4().hex[:10], order_id=o.order_id, task_id=o.task_id, amount_kop=o.amount_kop,
                 payee_account=o.payee_account, status="succeeded", created_at=_now())
-    payments[p.payment_id] = p
+    store.insert_payment(p, bank_day(p.created_at))
     o.status = "paid"
     audit.log("payment-sandbox", "trusted", "payment.succeeded", {
         "payment_id": p.payment_id, "amount_kop": p.amount_kop, "payee_account": p.payee_account, "sandbox": True,
@@ -227,7 +247,9 @@ def _sandbox_pay(o: Order) -> Payment:
     return p
 
 
+def all_payments() -> list[Payment]:
+    return store.all_payments()
+
+
 def reset() -> None:
-    orders.clear()
-    challenges.clear()
-    payments.clear()
+    store.clear()
