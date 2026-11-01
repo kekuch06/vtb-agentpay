@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import date
 
@@ -15,6 +16,7 @@ from pydantic import ValidationError
 
 from ..models import Constraints
 
+log = logging.getLogger("agentpay.llm")
 MODE = os.getenv("AGENTPAY_LLM", "auto")  # auto | ollama | openai | rules
 OLLAMA_URL = os.getenv("AGENTPAY_OLLAMA_URL", "http://localhost:11434")
 BASE_URL = os.getenv("AGENTPAY_LLM_BASE_URL", "").rstrip("/")  # OpenAI-совместимый endpoint, например http://vllm:8000/v1
@@ -39,6 +41,16 @@ WEEKDAYS_RU = ["понедельник", "вторник", "среда", "чет
 
 class LLMUnavailable(Exception):
     pass
+
+
+def _reason(e: Exception) -> str:
+    if isinstance(e, httpx.TimeoutException):
+        return "таймаут"
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"HTTP {e.response.status_code}"
+    if isinstance(e, httpx.TransportError):
+        return "нет соединения"
+    return type(e).__name__
 
 
 def available() -> bool:
@@ -95,8 +107,11 @@ def extract(text: str, today: date) -> Constraints:
     try:
         content = _call_openai(text, today) if PROVIDER == "openai" else _call_ollama(text, today)
     except Exception as e:  # сеть, таймаут, модель не загружена
-        raise LLMUnavailable(str(e)) from e
+        # Пользователю — только категория ошибки: текст исключения содержит внутренние адреса контура.
+        log.warning("LLM недоступна: %r", e)
+        raise LLMUnavailable(_reason(e)) from e
     try:
         return Constraints.model_validate(json.loads(content))
     except (json.JSONDecodeError, ValidationError) as e:
-        raise LLMUnavailable(f"ответ модели не прошёл проверку схемы: {e}") from e
+        log.warning("ответ модели не прошёл проверку схемы: %s", e)
+        raise LLMUnavailable(f"ответ модели не прошёл проверку схемы ({type(e).__name__})") from e

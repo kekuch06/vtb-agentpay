@@ -44,3 +44,35 @@ def test_bad_sandbox_scenario_is_client_error(body):
     from fastapi.testclient import TestClient
     r = TestClient(main.app, raise_server_exceptions=False).post("/api/sandbox/scenario", json=body)
     assert 400 <= r.status_code < 500
+
+
+def test_security_headers(client, dist):
+    for path in ["/", "/api/health"]:
+        h = client.get(path).headers
+        assert "frame-ancestors 'none'" in h["content-security-policy"]  # окно подтверждения нельзя встроить в чужой сайт
+        assert "default-src 'self'" in h["content-security-policy"]
+        assert h["x-frame-options"] == "DENY"
+        assert h["x-content-type-options"] == "nosniff"
+        assert h["referrer-policy"] == "no-referrer"
+    assert client.get("/api/health").headers["cache-control"] == "no-store"
+
+
+def test_api_docs_do_not_load_cdn_by_default(client):
+    # Swagger UI тянет скрипты с CDN — в закрытом контуре это внешний ресурс
+    assert client.get("/docs").status_code == 404 or "cdn" not in client.get("/docs").text
+
+
+def test_llm_error_does_not_leak_internal_address(client, monkeypatch):
+    import httpx
+    from app.agent import llm
+
+    def boom(text, today):
+        req = httpx.Request("POST", "http://vllm.internal:8000/v1/chat/completions")
+        raise httpx.HTTPStatusError("Server error '503' for url 'http://vllm.internal:8000/v1/chat/completions'",
+                                    request=req, response=httpx.Response(503, request=req))
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(llm, "PROVIDER", "openai")
+    monkeypatch.setattr(llm, "_call_openai", boom)
+    t = client.post("/api/tasks", json={"text": "SSD Samsung 2 ТБ"}).json()
+    assert t["parser"] == "rules"
+    assert "vllm.internal" not in str(t)

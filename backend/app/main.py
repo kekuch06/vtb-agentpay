@@ -18,7 +18,12 @@ from .agent import llm, orchestrator
 from .models import Task
 from .trust import payments
 
-app = FastAPI(title="VTB AgentPay MVP", version="0.1.0")
+# Swagger UI загружает скрипты с CDN — в закрытом контуре это внешний ресурс, поэтому по умолчанию выключен.
+API_DOCS = os.getenv("AGENTPAY_API_DOCS", "0") == "1"
+app = FastAPI(title="VTB AgentPay MVP", version="0.1.0", docs_url="/docs" if API_DOCS else None, redoc_url=None)
+
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+       "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
 # Клиент — анонимная сессия в cookie (в продукте — аутентификация в ВТБ Онлайн). Все объекты привязаны к хешу
 # сессии: чужое поручение, заказ или запись журнала для API не существуют. SameSite=Strict закрывает CSRF.
@@ -34,6 +39,14 @@ async def session(request: Request, call_next):
         token = secrets.token_urlsafe(32)
     request.state.owner = hashlib.sha256(token.encode()).hexdigest()[:32]
     response = await call_next(request)
+    # Окно подтверждения платежа нельзя встроить в чужую страницу (clickjacking), внешние скрипты не выполняются.
+    if not (API_DOCS and request.url.path == "/docs"):
+        response.headers["Content-Security-Policy"] = CSP
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
     if fresh:
         response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict", secure=COOKIE_SECURE, path="/")
     return response
