@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from app import db
 from app.trust import payments
-from conftest import code_for  # noqa: E402
+from conftest import code_for
 
 MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"
 

@@ -2,9 +2,9 @@
 from datetime import datetime, timezone
 
 from app import store
-from conftest import owner_of
 from app.models import Payment
 from app.trust import payments
+from conftest import owner_of
 
 MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"
 

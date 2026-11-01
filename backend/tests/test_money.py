@@ -1,7 +1,7 @@
 """Деньги считаются в копейках: сумма платежа совпадает с ценой продавца до копейки."""
 from app import catalogs
 from app.trust import payments
-from conftest import code_for  # noqa: E402
+from conftest import code_for
 
 MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"
 OFFER = "komplekt:KP-SSD-2T-S9E"

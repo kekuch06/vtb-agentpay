@@ -2,11 +2,10 @@
 Раньше цепочка была SHA-256 без ключа: после правки записи её пересчитывали целиком, и проверка проходила."""
 import hashlib
 import json
-import sqlite3
 
-from app import audit, db, store
+from app import audit, store
 from app.trust import payments
-from conftest import code_for, owner_of
+from conftest import code_for, drop_audit_guard, owner_of, raw_db
 
 MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"
 COLS = ["ts", "actor", "zone", "action", "owner", "task_id", "order_id", "data"]
@@ -22,8 +21,8 @@ def _paid(client):
 def test_rewritten_chain_without_key_is_detected(client):
     _paid(client)
     assert audit.verify_chain()["ok"]
-    con = sqlite3.connect(db.current())
-    con.execute("DROP TRIGGER audit_no_update")
+    con = raw_db()
+    drop_audit_guard(con)
     prev = "0" * 64
     for r in con.execute(f"SELECT id, {', '.join(COLS)} FROM audit ORDER BY id").fetchall():
         row = dict(zip(COLS, r[1:]))
@@ -32,7 +31,6 @@ def test_rewritten_chain_without_key_is_detected(client):
         h = hashlib.sha256((prev + json.dumps(row, ensure_ascii=False, sort_keys=True)).encode()).hexdigest()
         con.execute("UPDATE audit SET data = ?, prev_hash = ?, hash = ? WHERE id = ?", (row["data"], prev, h, r[0]))
         prev = h
-    con.commit()
     assert not audit.verify_chain()["ok"]
 
 

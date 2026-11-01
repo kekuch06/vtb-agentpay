@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 
 from . import db
 from .models import Challenge, DeviceMessage, Order, Payment, Task
@@ -57,13 +57,14 @@ def get_challenge(challenge_id: str) -> tuple[Challenge, str, str, bool] | None:
 
 
 def push_to_device(owner: str, m: DeviceMessage) -> None:
-    db.execute("INSERT INTO device_inbox (challenge_id, owner, doc) VALUES (?, ?, ?)", (m.challenge_id, owner, m.model_dump_json()))
+    db.execute("INSERT INTO device_inbox (challenge_id, owner, created_at, doc) VALUES (?, ?, ?, ?)",
+               (m.challenge_id, owner, datetime.now(timezone.utc).isoformat(), m.model_dump_json()))
 
 
 def device_messages(owner: str) -> list[DeviceMessage]:
     """Коды по действующим запросам подтверждения этого клиента."""
     rows = db.query("SELECT d.doc FROM device_inbox d JOIN challenges c ON c.challenge_id = d.challenge_id "
-                    "WHERE d.owner = ? AND c.used = 0 ORDER BY c.rowid", (owner,))
+                    "WHERE d.owner = ? AND c.used = 0 ORDER BY d.created_at", (owner,))
     return [DeviceMessage.model_validate_json(r[0]) for r in rows]
 
 

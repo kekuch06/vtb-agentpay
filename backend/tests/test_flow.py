@@ -1,5 +1,9 @@
 """Сквозной сценарий и атаки на платёжный контур. Ни одна атака не должна привести к платежу."""
+import pytest
+
+from app import catalogs
 from app.trust import payments
+from conftest import code_for
 
 MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"
 
@@ -142,33 +146,25 @@ def test_over_limit(client):
     assert any(p["rule"] == "per_operation_limit" and not p["passed"] for p in r["policy"])
 
 
-def test_audit_chain_detects_tampering(client, tmp_path):
-    import sqlite3
+def test_audit_chain_detects_tampering(client):
     from app import audit
-    from app import db as app_db
+    from conftest import drop_audit_guard, raw_db
     _task(client)
     assert audit.verify_chain()["ok"]
-    db = sqlite3.connect(app_db.current())
-    db.execute("DROP TRIGGER audit_no_update")
-    db.execute("UPDATE audit SET data = '{}' WHERE id = 1")
-    db.commit()
+    con = raw_db()
+    drop_audit_guard(con)
+    con.execute("UPDATE audit SET data = '{}' WHERE id = 1")
     assert not audit.verify_chain()["ok"]
 
 
-def test_audit_is_append_only(client):
-    import sqlite3
-    import pytest
-    from app import db as app_db
+@pytest.mark.parametrize("sql", ["DELETE FROM audit", "UPDATE audit SET data = '{}'"])
+def test_audit_is_append_only(client, sql):
+    from conftest import raw_db
     _task(client)
-    db = sqlite3.connect(app_db.current())
-    with pytest.raises(sqlite3.DatabaseError):
-        db.execute("DELETE FROM audit")
+    with pytest.raises(Exception, match="append-only"):
+        raw_db().execute(sql)
 
 
-import pytest  # noqa: E402
-
-from app import catalogs  # noqa: E402
-from conftest import code_for  # noqa: E402
 
 CARD_CHANGES = {  # продавец меняет карточку после того, как агент её проверил
     "гарантия снята": {"warranty_years": 0},

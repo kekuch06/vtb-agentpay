@@ -64,6 +64,7 @@ def test_api_docs_do_not_load_cdn_by_default(client):
 
 def test_llm_error_does_not_leak_internal_address(client, monkeypatch):
     import httpx
+
     from app.agent import llm
 
     def boom(text, today):
