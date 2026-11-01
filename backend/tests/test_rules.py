@@ -44,3 +44,14 @@ def test_grounding_drops_hallucinations():
     assert c.max_total_rub is None  # бюджета в тексте нет
     assert c.keywords == []  # придуманная модель и характеристика отброшены
     assert fixes
+
+
+def test_impossible_dates_do_not_crash():
+    # Несуществующая дата в поручении — не условие и не ошибка сервера
+    for text in ["ssd до 31.02", "ssd до 00.11", "ssd до 32 ноября", "ssd до 29.02", "ssd до 15.13"]:
+        assert parse(text, MON).deliver_by is None, text
+
+
+def test_impossible_date_via_api(client):
+    r = client.post("/api/tasks", json={"text": "SSD Samsung 2 ТБ до 31.02"})
+    assert r.status_code == 200 and r.json()["constraints"]["deliver_by"] is None

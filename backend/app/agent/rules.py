@@ -66,6 +66,18 @@ def parse_budget(t: str) -> int | None:
     return None
 
 
+def _next_date(day: int, month: int, today: date) -> date | None:
+    """Ближайшая будущая дата «день.месяц». Несуществующая дата (31.02, 32 ноября) — не условие, а не ошибка сервера."""
+    for year in (today.year, today.year + 1):
+        try:
+            d = date(year, month, day)
+        except ValueError:
+            return None
+        if d >= today:
+            return d
+    return None
+
+
 def parse_deadline(t: str, today: date) -> date | None:
     if "послезавтра" in t:
         return today + timedelta(days=2)
@@ -76,14 +88,12 @@ def parse_deadline(t: str, today: date) -> date | None:
         return today + timedelta(days=int(m.group(1)))
     m = re.search(r"до\s+(\d{1,2})\.(\d{1,2})", t)
     if m:
-        d = date(today.year, int(m.group(2)), int(m.group(1)))
-        return d if d >= today else date(today.year + 1, d.month, d.day)
+        return _next_date(int(m.group(1)), int(m.group(2)), today)
     m = re.search(r"до\s+(\d{1,2})\s+([а-я]+)", t)
     if m:
         for stem, month in MONTHS.items():
             if m.group(2).startswith(stem):
-                d = date(today.year, month, int(m.group(1)))
-                return d if d >= today else date(today.year + 1, month, d.day)
+                return _next_date(int(m.group(1)), month, today)
     m = re.search(r"(?:до|к)\s+(понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)", t)
     if m:
         wd = WEEKDAYS[m.group(1)]
