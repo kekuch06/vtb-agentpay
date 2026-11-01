@@ -74,3 +74,16 @@ def test_slow_startup_response_does_not_steal_task():
         browser.cookies.set(k, v)
     r = browser.post("/api/orders", json={"task_id": t["task_id"], "offer_id": t["recommended_offer_id"]})
     assert r.status_code == 200
+
+
+def test_get_order_is_owner_scoped(client):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    t = client.post("/api/tasks", json={"text": "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"}).json()
+    o = client.post("/api/orders", json={"task_id": t["task_id"], "offer_id": t["recommended_offer_id"]}).json()["order"]
+    assert client.get(f"/api/orders/{o['order_id']}").json()["order"]["status"] == "draft"
+    client.post(f"/api/orders/{o['order_id']}/checkout")
+    assert client.get(f"/api/orders/{o['order_id']}").json()["order"]["status"] == "awaiting_confirmation"
+    assert TestClient(app).get(f"/api/orders/{o['order_id']}").status_code == 404
+    assert client.get("/api/orders/ord_nope").status_code == 404

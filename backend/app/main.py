@@ -121,6 +121,15 @@ def create_order(body: OrderIn, me: str = Depends(owner)):
     return {"order": o, "policy": payments.evaluate(me, o, task, today())}
 
 
+@app.get("/api/orders/{order_id}")
+def get_order(order_id: str, me: str = Depends(owner)):
+    """Актуальное состояние заказа: после отказа подтверждения интерфейс берёт статус у сервера, а не угадывает по тексту ошибки."""
+    o = store.get_order(me, order_id)
+    if o is None:
+        raise HTTPException(404, "заказ не найден")
+    return {"order": o}
+
+
 @app.post("/api/orders/{order_id}/checkout")
 def checkout(order_id: str, me: str = Depends(owner)):
     try:
