@@ -221,4 +221,4 @@ def test_one_purchase_per_task_when_both_awaiting(client):
     assert client.post(f"/api/orders/{oa['order_id']}/confirm", json={"challenge_id": cha["challenge_id"], "code": cha["sandbox_code"]}).status_code == 200
     r = client.post(f"/api/orders/{ob['order_id']}/confirm", json={"challenge_id": chb["challenge_id"], "code": chb["sandbox_code"]})
     assert r.status_code == 409
-    assert sum(p.amount_rub for p in payments.payments.values()) <= 16_000
+    assert sum(p.amount_kop for p in payments.payments.values()) <= 16_000_00

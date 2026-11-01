@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 
 from .. import audit, catalogs
 from ..models import Constraints, Task, TraceStep
-from ..trust.verifier import CATEGORY_RU, _gb, _rub, check_offer
+from ..trust.verifier import CATEGORY_RU, _gb, _money, _rub, check_offer
 from . import grounding, llm, rules
 
 
@@ -101,7 +101,7 @@ def run(text: str, today: date | None = None) -> Task:
     audit.log("agent", "trusted", "recommendation.made", {"offer_id": best.offer.offer_id if best else None}, task_id=task_id)
 
     # Порядок для интерфейса: прошедшие по рейтингу, затем отклонённые.
-    ordered = passed + sorted(rejected, key=lambda c: c.offer.total_rub)
+    ordered = passed + sorted(rejected, key=lambda c: c.offer.total_kop)
     return Task(task_id=task_id, text=text, created_at=datetime.now(timezone.utc), parser=parser, constraints=constraints,
                 offers=ordered, recommended_offer_id=best.offer.offer_id if best else None, explanation=explanation, trace=trace)
 
@@ -139,12 +139,12 @@ def _explain(c: Constraints, checked, passed, injected) -> str:
                 f"Чаще всего не проходят: {top}. Попробуйте ослабить условия.")
     b = passed[0].offer
     s = (f"Проверил {_offers(len(checked))} у {_sellers(merchants)}, условиям {'соответствует' if len(passed) == 1 else 'соответствуют'} {len(passed)}. "
-         f"Лучший вариант — {b.title} у продавца «{b.merchant_name}»: {_rub(b.total_rub)} с доставкой, "
+         f"Лучший вариант — {b.title} у продавца «{b.merchant_name}»: {_money(b.total_kop)} с доставкой, "
          f"привезут {b.delivery_date:%d.%m}, гарантия {b.warranty_months} мес.")
     if len(passed) > 1:
-        diff = passed[1].offer.total_rub - b.total_rub
+        diff = passed[1].offer.total_kop - b.total_kop
         if diff > 0:
-            s += f" Это на {_rub(diff)} дешевле следующего подходящего варианта."
+            s += f" Это на {_money(diff)} дешевле следующего подходящего варианта."
     if injected:
         s += f" Исключено подозрительных карточек: {len(injected)} — в карточке были инструкции для агента или чужие реквизиты."
     return s

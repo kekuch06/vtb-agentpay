@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  api, ApiError, ddmm, rub,
+  api, ApiError, ddmm, money, rub,
   type AuditEntry, type Challenge, type CheckedOffer, type Health, type Order, type Payment, type PolicyResult, type Task,
 } from "./api";
 
@@ -104,7 +104,7 @@ export default function App() {
     try {
       const r = await api.order(task.task_id, offerId);
       setOrder(r.order); setPolicy(r.policy); setChallenge(null); setPayment(null);
-      push({ role: "event", tone: "ok", text: `Создан заказ ${r.order.order_id} на ${rub(r.order.amount_rub)}. Цена запрошена у продавца повторно, реквизиты взяты из реестра банка.` });
+      push({ role: "event", tone: "ok", text: `Создан заказ ${r.order.order_id} на ${money(r.order.amount_kop)}. Цена запрошена у продавца повторно, реквизиты взяты из реестра банка.` });
       setTab("order");
     } catch (e) {
       push({ role: "event", tone: "bad", text: errText(e) });
@@ -139,7 +139,7 @@ export default function App() {
     try {
       const r = await api.confirm(order.order_id, challenge.challenge_id, code);
       setOrder(r.order); setPayment(r.payment); setChallenge(null);
-      push({ role: "event", tone: "ok", text: `Оплачено в sandbox: ${rub(r.payment.amount_rub)} → ${r.order.merchant_name}. Платёж ${r.payment.payment_id}.` });
+      push({ role: "event", tone: "ok", text: `Оплачено в sandbox: ${money(r.payment.amount_kop)} → ${r.order.merchant_name}. Платёж ${r.payment.payment_id}.` });
       return null;
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
@@ -313,8 +313,8 @@ function OfferCard({ o, best, onOrder, busy }: { o: CheckedOffer; best: boolean;
           <small>{f.merchant_name} · арт. {f.sku}</small>
         </div>
         <div className="price">
-          <b>{rub(f.total_rub)}</b>
-          <small>{f.delivery_rub ? `вкл. доставку ${rub(f.delivery_rub)}` : "доставка бесплатно"}</small>
+          <b>{money(f.total_kop)}</b>
+          <small>{f.delivery_kop ? `вкл. доставку ${money(f.delivery_kop)}` : "доставка бесплатно"}</small>
         </div>
       </div>
       <div className="facts">
@@ -350,7 +350,7 @@ function OrderView({ order, policy, payment, onCheckout, busy, onOpenConfirm }: 
         <div className="row"><span>Товар</span><b>{order.title}</b></div>
         <div className="row"><span>Продавец</span><b>{order.merchant_name}</b></div>
         <div className="row"><span>Счёт получателя</span><code>{order.payee_account}</code></div>
-        <div className="row big"><span>Сумма</span><b>{rub(order.amount_rub)}</b></div>
+        <div className="row big"><span>Сумма</span><b>{money(order.amount_kop)}</b></div>
       </div>
       {payment && (
         <div className="receipt">
@@ -395,7 +395,7 @@ function ConfirmModal({ ch, order, onConfirm, onCancel }: {
           <div>Код подтверждения: <b>{ch.sandbox_code}</b></div>
         </div>
         <h2>Подтвердите оплату</h2>
-        <div className="amount">{rub(ch.amount_rub)}</div>
+        <div className="amount">{money(ch.amount_kop)}</div>
         <div className="row"><span>Получатель</span><b>{ch.merchant_name}</b></div>
         <div className="row"><span>Счёт</span><code>{ch.payee_account}</code></div>
         <div className="row"><span>Назначение</span><b>{order.title}</b></div>

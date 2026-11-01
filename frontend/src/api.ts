@@ -1,7 +1,7 @@
 export type Check = { name: string; passed: boolean; detail: string };
 export type Offer = {
   offer_id: string; merchant_id: string; merchant_name: string; sku: string; title: string; brand: string;
-  category: string; capacity_gb: number | null; price_rub: number; delivery_rub: number; total_rub: number;
+  category: string; capacity_gb: number | null; price_kop: number; delivery_kop: number; total_kop: number;
   delivery_date: string; warranty_months: number; in_stock: boolean; description: string;
 };
 export type CheckedOffer = { offer: Offer; checks: Check[]; passed: boolean; score: number | null };
@@ -16,14 +16,14 @@ export type Task = {
 };
 export type Order = {
   order_id: string; task_id: string; offer_id: string; merchant_id: string; merchant_name: string;
-  payee_account: string; sku: string; title: string; amount_rub: number; status: string; expires_at: string;
+  payee_account: string; sku: string; title: string; amount_kop: number; status: string; expires_at: string;
 };
 export type PolicyResult = { rule: string; passed: boolean; detail: string };
 export type Challenge = {
-  challenge_id: string; order_id: string; amount_rub: number; payee_account: string; merchant_name: string;
+  challenge_id: string; order_id: string; amount_kop: number; payee_account: string; merchant_name: string;
   expires_at: string; sandbox_code: string;
 };
-export type Payment = { payment_id: string; order_id: string; amount_rub: number; payee_account: string; created_at: string };
+export type Payment = { payment_id: string; order_id: string; amount_kop: number; payee_account: string; created_at: string };
 export type AuditEntry = {
   id: number; ts: string; actor: string; zone: string; action: string; task_id: string | null;
   order_id: string | null; data: Record<string, unknown>; hash: string;
@@ -66,4 +66,7 @@ export const api = {
 };
 
 export const rub = (v: number) => v.toLocaleString("ru-RU") + " ₽";
+// Суммы заказа и платежа приходят в копейках: 1848750 → «18 487,50 ₽», 1479000 → «14 790 ₽».
+export const money = (kop: number) =>
+  (kop / 100).toLocaleString("ru-RU", { minimumFractionDigits: kop % 100 ? 2 : 0, maximumFractionDigits: 2 }) + " ₽";
 export const ddmm = (iso: string) => iso.slice(8, 10) + "." + iso.slice(5, 7);

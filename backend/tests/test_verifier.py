@@ -7,7 +7,7 @@ from app.models import Offer
 from app.trust.verifier import listing_is_clean
 
 BASE = Offer(offer_id="t:1", merchant_id="t", merchant_name="Т", sku="1", title="Samsung 990 EVO 2TB", brand="Samsung",
-             category="ssd", capacity_gb=2000, price_rub=100, delivery_rub=0, total_rub=100, delivery_date=date(2026, 11, 3),
+             category="ssd", capacity_gb=2000, price_kop=10_000, delivery_kop=0, total_kop=10_000, delivery_date=date(2026, 11, 3),
              warranty_months=12, in_stock=True)
 
 

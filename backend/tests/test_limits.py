@@ -9,7 +9,7 @@ MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставко�
 
 def _earlier_payment(at: datetime, amount: int) -> None:
     payments.payments["pay_prev"] = Payment(payment_id="pay_prev", order_id="ord_prev", task_id="task_prev",
-                                            amount_rub=amount, payee_account="40702810900000000001", status="succeeded", created_at=at)
+                                            amount_kop=amount * 100, payee_account="40702810900000000001", status="succeeded", created_at=at)
 
 
 def _daily_rule(client, monkeypatch, now: datetime):

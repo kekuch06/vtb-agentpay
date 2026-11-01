@@ -37,9 +37,10 @@ class Offer(BaseModel):
     brand: str = Field(max_length=60)
     category: str = Field(max_length=30)
     capacity_gb: int | None = Field(ge=1, le=1_000_000)
-    price_rub: int = Field(gt=0, le=10_000_000)
-    delivery_rub: int = Field(ge=0, le=1_000_000)
-    total_rub: int = Field(gt=0)
+    # Деньги — целые копейки: цена 18 487,50 ₽ не должна превращаться в 18 487 ₽ на пути к платежу.
+    price_kop: int = Field(gt=0, le=1_000_000_000)
+    delivery_kop: int = Field(ge=0, le=100_000_000)
+    total_kop: int = Field(gt=0)
     delivery_date: date
     warranty_months: int = Field(ge=0, le=1200)
     in_stock: bool
@@ -47,7 +48,7 @@ class Offer(BaseModel):
 
     @model_validator(mode="after")
     def _total_is_price_plus_delivery(self) -> "Offer":
-        if self.total_rub != self.price_rub + self.delivery_rub:
+        if self.total_kop != self.price_kop + self.delivery_kop:
             raise ValueError("итог не равен цене с доставкой")
         return self
 
@@ -93,7 +94,7 @@ class Order(BaseModel):
     payee_account: str
     sku: str
     title: str
-    amount_rub: int
+    amount_kop: int = Field(gt=0)
     status: Literal["draft", "awaiting_confirmation", "paid", "rejected", "expired"]
     created_at: datetime
     expires_at: datetime
@@ -112,7 +113,7 @@ class PolicyResult(BaseModel):
 class Challenge(BaseModel):
     challenge_id: str
     order_id: str
-    amount_rub: int
+    amount_kop: int
     payee_account: str
     merchant_name: str
     expires_at: datetime
@@ -124,7 +125,7 @@ class Payment(BaseModel):
     payment_id: str
     order_id: str
     task_id: str
-    amount_rub: int
+    amount_kop: int
     payee_account: str
     status: Literal["succeeded"]
     created_at: datetime

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from .. import audit, catalogs
 from ..models import Challenge, Order, Payment, PolicyResult, Task
-from .verifier import _rub, check_offer
+from .verifier import _money, _rub, check_offer
 
 ORDER_TTL = timedelta(minutes=15)
 CHALLENGE_TTL = timedelta(minutes=5)
@@ -47,7 +47,7 @@ def bank_day(dt: datetime) -> date:
 
 
 def order_hash(o: Order) -> str:
-    payload = f"{o.order_id}|{o.task_id}|{o.offer_id}|{o.merchant_id}|{o.payee_account}|{o.sku}|{o.amount_rub}"
+    payload = f"{o.order_id}|{o.task_id}|{o.offer_id}|{o.merchant_id}|{o.payee_account}|{o.sku}|{o.amount_kop}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -68,14 +68,14 @@ def create_order(task: Task, offer_id: str, today: date) -> Order:
     o = Order(
         order_id="ord_" + uuid.uuid4().hex[:10], task_id=task.task_id, offer_id=offer_id,
         merchant_id=fresh.merchant_id, merchant_name=merchant["name"], payee_account=merchant["payee_account"],
-        sku=fresh.sku, title=fresh.title, amount_rub=fresh.total_rub, status="draft",
+        sku=fresh.sku, title=fresh.title, amount_kop=fresh.total_kop, status="draft",
         created_at=now, expires_at=now + ORDER_TTL, order_hash="",
     )
     o.order_hash = order_hash(o)
     orders[o.order_id] = o
     audit.log("order-service", "trusted", "order.created", {
-        "offer_id": offer_id, "merchant": o.merchant_id, "amount_rub": o.amount_rub,
-        "payee_account": o.payee_account, "price_at_search": checked.offer.total_rub,
+        "offer_id": offer_id, "merchant": o.merchant_id, "amount_kop": o.amount_kop,
+        "payee_account": o.payee_account, "price_at_search_kop": checked.offer.total_kop,
     }, task_id=task.task_id, order_id=o.order_id)
     return o
 
@@ -95,10 +95,10 @@ def evaluate(o: Order, task: Task, today: date) -> list[PolicyResult]:
     r.append(PolicyResult(rule="payee_match", passed=payee_ok,
                           detail="получатель совпадает с реестром" if payee_ok
                           else f"получатель {o.payee_account} не совпадает с реестром продавца"))
-    price_ok = fresh is not None and fresh.total_rub == o.amount_rub
+    price_ok = fresh is not None and fresh.total_kop == o.amount_kop
     r.append(PolicyResult(rule="price_recheck", passed=price_ok,
                           detail="цена у продавца не изменилась" if price_ok
-                          else f"актуальная цена {_rub(fresh.total_rub) if fresh else '—'} отличается от суммы заказа {_rub(o.amount_rub)}"))
+                          else f"актуальная цена {_money(fresh.total_kop) if fresh else '—'} отличается от суммы заказа {_money(o.amount_kop)}"))
     stock_ok = fresh is not None and fresh.in_stock
     r.append(PolicyResult(rule="stock_recheck", passed=stock_ok, detail="товар в наличии" if stock_ok else "товара нет в наличии"))
     # Условия поручения проверяются заново по актуальной карточке: продавец мог снять гарантию, сдвинуть доставку
@@ -115,16 +115,17 @@ def evaluate(o: Order, task: Task, today: date) -> list[PolicyResult]:
                           detail="по поручению ещё нет оплаты" if not paid_by_task
                           else f"по поручению уже оплачен заказ {paid_by_task[0].order_id}"))
     budget = task.constraints.max_total_rub
-    budget_ok = budget is None or o.amount_rub <= budget
+    budget_ok = budget is None or o.amount_kop <= budget * 100
     r.append(PolicyResult(rule="task_budget", passed=budget_ok,
                           detail="сумма в пределах бюджета поручения" if budget_ok else f"сумма превышает бюджет поручения {_rub(budget)}"))
     limit = settings["per_operation_limit_rub"]
-    r.append(PolicyResult(rule="per_operation_limit", passed=o.amount_rub <= limit,
-                          detail=f"лимит на операцию {_rub(limit)}" + ("" if o.amount_rub <= limit else " превышен")))
-    spent = sum(p.amount_rub for p in payments.values() if bank_day(p.created_at) == bank_day(_now()))
-    daily_ok = spent + o.amount_rub <= settings["daily_limit_rub"]
+    limit_ok = o.amount_kop <= limit * 100
+    r.append(PolicyResult(rule="per_operation_limit", passed=limit_ok,
+                          detail=f"лимит на операцию {_rub(limit)}" + ("" if limit_ok else " превышен")))
+    spent = sum(p.amount_kop for p in payments.values() if bank_day(p.created_at) == bank_day(_now()))
+    daily_ok = spent + o.amount_kop <= settings["daily_limit_rub"] * 100
     r.append(PolicyResult(rule="daily_limit", passed=daily_ok,
-                          detail=f"дневной лимит: потрачено {_rub(spent)} из {_rub(settings['daily_limit_rub'])}" + ("" if daily_ok else ", превышен")))
+                          detail=f"дневной лимит: потрачено {_money(spent)} из {_rub(settings['daily_limit_rub'])}" + ("" if daily_ok else ", превышен")))
     r.append(PolicyResult(rule="not_expired", passed=_now() < o.expires_at,
                           detail="заказ действителен" if _now() < o.expires_at else "срок заказа истёк"))
     r.append(PolicyResult(rule="not_paid", passed=o.status != "paid",
@@ -161,7 +162,7 @@ def checkout(o: Order, task: Task, today: date) -> tuple[list[PolicyResult], Cha
         _close(o, results)
         return results, None
     ch = Challenge(
-        challenge_id="ch_" + uuid.uuid4().hex[:10], order_id=o.order_id, amount_rub=o.amount_rub,
+        challenge_id="ch_" + uuid.uuid4().hex[:10], order_id=o.order_id, amount_kop=o.amount_kop,
         payee_account=o.payee_account, merchant_name=o.merchant_name, expires_at=_now() + CHALLENGE_TTL,
         sandbox_code=f"{secrets.randbelow(10**6):06d}",
     )
@@ -172,7 +173,7 @@ def checkout(o: Order, task: Task, today: date) -> tuple[list[PolicyResult], Cha
     o.challenges_issued += 1
     o.status = "awaiting_confirmation"
     audit.log("confirmation", "user", "confirmation.requested", {
-        "challenge_id": ch.challenge_id, "amount_rub": ch.amount_rub, "payee_account": ch.payee_account,
+        "challenge_id": ch.challenge_id, "amount_kop": ch.amount_kop, "payee_account": ch.payee_account,
         "issued": o.challenges_issued,
     }, task_id=o.task_id, order_id=o.order_id)
     return results, ch
@@ -216,12 +217,12 @@ def confirm(o: Order, task: Task, challenge_id: str, code: str, today: date) -> 
 
 
 def _sandbox_pay(o: Order) -> Payment:
-    p = Payment(payment_id="pay_" + uuid.uuid4().hex[:10], order_id=o.order_id, task_id=o.task_id, amount_rub=o.amount_rub,
+    p = Payment(payment_id="pay_" + uuid.uuid4().hex[:10], order_id=o.order_id, task_id=o.task_id, amount_kop=o.amount_kop,
                 payee_account=o.payee_account, status="succeeded", created_at=_now())
     payments[p.payment_id] = p
     o.status = "paid"
     audit.log("payment-sandbox", "trusted", "payment.succeeded", {
-        "payment_id": p.payment_id, "amount_rub": p.amount_rub, "payee_account": p.payee_account, "sandbox": True,
+        "payment_id": p.payment_id, "amount_kop": p.amount_kop, "payee_account": p.payee_account, "sandbox": True,
     }, task_id=o.task_id, order_id=o.order_id)
     return p
 

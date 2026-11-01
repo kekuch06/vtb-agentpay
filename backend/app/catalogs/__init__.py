@@ -8,6 +8,7 @@ import copy
 import json
 import re
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 from ..models import Offer
@@ -59,6 +60,17 @@ def _parse_warranty_months(s: str) -> int:
     return n * 12 if m.group(2) in ("год", "лет") else n
 
 
+def _kop(rub) -> int:
+    """Цена из каталога в рублях → копейки без потерь (15490 → 1549000, 15490.5 → 1549050).
+    Строка, bool или дробная копейка — ошибка карточки, а не повод округлять сумму платежа."""
+    if isinstance(rub, bool) or not isinstance(rub, (int, float)):
+        raise TypeError(f"цена должна быть числом: {rub!r}")
+    kop = Decimal(str(rub)) * 100
+    if kop != kop.to_integral_value():
+        raise ValueError(f"цена с долей копейки: {rub!r}")
+    return int(kop)
+
+
 def _days(v) -> int:
     if not isinstance(v, int) or isinstance(v, bool) or v < 0:
         raise ValueError(f"некорректный срок доставки: {v!r}")
@@ -69,21 +81,21 @@ def _techmart(it: dict, today: date) -> Offer:
     return Offer(
         offer_id=f"techmart:{it['sku']}", merchant_id="techmart", merchant_name=MERCHANTS["techmart"]["name"],
         sku=it["sku"], title=it["title"], brand=it["brand"], category=it["type"], capacity_gb=it["capacity_gb"],
-        price_rub=it["price_rub"], delivery_rub=it["delivery"]["price"],
-        total_rub=it["price_rub"] + it["delivery"]["price"],
+        price_kop=_kop(it["price_rub"]), delivery_kop=_kop(it["delivery"]["price"]),
+        total_kop=_kop(it["price_rub"]) + _kop(it["delivery"]["price"]),
         delivery_date=today + timedelta(days=_days(it["delivery"]["days"])),
         warranty_months=it["warranty_months"], in_stock=it["stock"] > 0, description=it.get("text", ""),
     )
 
 
 def _digistore(it: dict, today: date) -> Offer:
-    price, ship = it["cost"]["amount"], it["shipping"]["cost"]
+    price, ship = _kop(it["cost"]["amount"]), _kop(it["shipping"]["cost"])
     return Offer(
         offer_id=f"digistore:{it['id']}", merchant_id="digistore", merchant_name=MERCHANTS["digistore"]["name"],
         sku=it["id"], title=it["name"], brand=it["manufacturer"].title(),
         category=CATEGORY_MAP.get(it["group"].lower(), "other"),
         capacity_gb=_parse_volume_gb(it["specs"].get("Объём", "")),
-        price_rub=price, delivery_rub=ship, total_rub=price + ship,
+        price_kop=price, delivery_kop=ship, total_kop=price + ship,
         delivery_date=today + timedelta(days=_days(it["shipping"]["eta_days"])),
         warranty_months=_parse_warranty_months(it["guarantee"]), in_stock=it["available"],
         description=it.get("about", ""),
@@ -91,7 +103,7 @@ def _digistore(it: dict, today: date) -> Offer:
 
 
 def _komplekt(it: dict, today: date) -> Offer:
-    price, ship = it["price_kop"] // 100, it["delivery_price_kop"] // 100
+    price, ship = it["price_kop"], it["delivery_price_kop"]
     vol = it["volume_tb"]
     desc = it.get("promo_text", "")
     if it.get("payment_account"):
@@ -101,7 +113,7 @@ def _komplekt(it: dict, today: date) -> Offer:
         sku=it["article"], title=it["model_name"], brand=it["vendor"].title(),
         category=CATEGORY_MAP.get(it["kind"].lower(), "other"),
         capacity_gb=int(round(vol * 1000)) if vol is not None else None,
-        price_rub=price, delivery_rub=ship, total_rub=price + ship,
+        price_kop=price, delivery_kop=ship, total_kop=price + ship,
         delivery_date=today + timedelta(days=-(-_days(it["delivery_hours"]) // 24)),
         warranty_months=it["warranty_years"] * 12, in_stock=it["qty"] > 0, description=desc,
     )

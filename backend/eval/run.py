@@ -28,7 +28,7 @@ FIELDS = ["category", "brand", "capacity_gb", "max_total_rub", "deliver_by", "mi
 
 def oracle(gt: Constraints) -> str | None:
     passed = [c for m in catalogs.ADAPTERS for c in (check_offer(o, gt) for o in catalogs.search(m, TODAY)) if c.passed]
-    passed.sort(key=lambda c: (c.offer.total_rub, c.offer.delivery_date))
+    passed.sort(key=lambda c: (c.offer.total_kop, c.offer.delivery_date))
     return passed[0].offer.offer_id if passed else None
 
 
