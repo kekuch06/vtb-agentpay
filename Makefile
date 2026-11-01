@@ -29,6 +29,7 @@ test:
 
 # Те же тесты на PostgreSQL: make test-pg PG=postgresql://agentpay:agentpay@localhost:5432/agentpay_test
 test-pg:
+	@test -n "$(PG)" || { echo "make test-pg: задайте PG=postgresql://пользователь:пароль@хост:порт/база (без PG тесты шли бы на SQLite)"; exit 2; }
 	cd backend && AGENTPAY_TEST_DATABASE_URL=$(PG) .venv/bin/python -m pytest -q
 
 lint:
