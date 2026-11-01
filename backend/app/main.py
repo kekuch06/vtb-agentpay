@@ -7,9 +7,10 @@ import re
 import secrets
 from datetime import date
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Path as PathParam
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.gzip import GZipMiddleware
@@ -145,24 +146,31 @@ def today() -> date:
     return date.fromisoformat(fixed) if fixed else date.today()
 
 
+# Идентификаторы и текст проверяются на входе. NUL-байт PostgreSQL в текст не принимает: без проверки такой параметр
+# доходил до запроса к базе и давал 500 (нашёл фаззинг API на PostgreSQL; SQLite NUL хранит, там дефект не виден).
+ID_RE = r"^[A-Za-z0-9_:.\-]{1,100}$"
+Id = Annotated[str, Field(pattern=ID_RE)]
+NO_NUL = r"^[^\x00]*$"
+
+
 class TaskIn(BaseModel):
-    text: str = Field(min_length=3, max_length=500)
+    text: str = Field(min_length=3, max_length=500, pattern=NO_NUL)
 
 
 class OrderIn(BaseModel):
-    task_id: str
-    offer_id: str
+    task_id: Id
+    offer_id: Id
 
 
 class ConfirmIn(BaseModel):
-    challenge_id: str
+    challenge_id: Id
     code: str = Field(pattern=r"^\d{6}$")
 
 
 class ScenarioIn(BaseModel):
     name: Literal["price_spike", "out_of_stock", "payee_swap", "code_expired", "reset"]
-    offer_id: str | None = None
-    order_id: str | None = None
+    offer_id: Id | None = None
+    order_id: Id | None = None
 
 
 class SettingsIn(BaseModel):
@@ -170,7 +178,7 @@ class SettingsIn(BaseModel):
 
 
 class LimitConfirmIn(BaseModel):
-    request_id: str = Field(max_length=40)
+    request_id: Id
     code: str = Field(pattern=r"^\d{6}$")
 
 
@@ -190,8 +198,11 @@ def create_task(body: TaskIn, request: Request, me: str = Depends(owner)):
     return t
 
 
+PathId = Annotated[str, PathParam(pattern=ID_RE)]
+
+
 @app.get("/api/tasks/{task_id}", response_model=Task)
-def get_task(task_id: str, me: str = Depends(owner)):
+def get_task(task_id: PathId, me: str = Depends(owner)):
     t = store.get_task(me, task_id)
     if t is None:
         raise HTTPException(404, "поручение не найдено")
@@ -211,7 +222,7 @@ def create_order(body: OrderIn, me: str = Depends(owner)):
 
 
 @app.get("/api/orders/{order_id}")
-def get_order(order_id: str, me: str = Depends(owner)):
+def get_order(order_id: PathId, me: str = Depends(owner)):
     """Актуальное состояние заказа: после отказа подтверждения интерфейс берёт статус у сервера, а не угадывает по тексту ошибки."""
     o = store.get_order(me, order_id)
     if o is None:
@@ -220,7 +231,7 @@ def get_order(order_id: str, me: str = Depends(owner)):
 
 
 @app.post("/api/orders/{order_id}/checkout")
-def checkout(order_id: str, me: str = Depends(owner)):
+def checkout(order_id: PathId, me: str = Depends(owner)):
     try:
         o, results, ch = payments.checkout(me, order_id, today())
     except LookupError as e:
@@ -229,7 +240,7 @@ def checkout(order_id: str, me: str = Depends(owner)):
 
 
 @app.post("/api/orders/{order_id}/confirm")
-def confirm(order_id: str, body: ConfirmIn, me: str = Depends(owner)):
+def confirm(order_id: PathId, body: ConfirmIn, me: str = Depends(owner)):
     try:
         o, p = payments.confirm(me, order_id, body.challenge_id, body.code, today())
     except LookupError as e:
@@ -242,7 +253,7 @@ def confirm(order_id: str, body: ConfirmIn, me: str = Depends(owner)):
 
 
 @app.get("/api/audit")
-def get_audit(task_id: str | None = None, me: str = Depends(owner)):
+def get_audit(task_id: Annotated[str | None, Query(pattern=ID_RE)] = None, me: str = Depends(owner)):
     # Клиенту — только признак целостности: число записей и голова цепочки описывают активность всего банка.
     return {"entries": audit.entries(me, task_id), "chain": {"ok": audit.chain_ok()}}
 

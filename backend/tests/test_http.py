@@ -118,3 +118,21 @@ def test_short_secret_key_stops_startup(tmp_path):
     r = subprocess.run([sys.executable, "-c", "import app.main"], env=env, capture_output=True, text=True,
                        cwd=os.path.dirname(os.path.dirname(__file__)))
     assert r.returncode != 0 and "AGENTPAY_SECRET_KEY" in r.stderr
+
+
+@pytest.mark.parametrize("method,path,body", [
+    ("GET", "/api/audit?task_id=%00", None),
+    ("GET", "/api/tasks/task_%00", None),
+    ("GET", "/api/orders/ord_%00", None),
+    ("POST", "/api/orders/ord_%00/checkout", None),
+    ("POST", "/api/tasks", {"text": "SSD \u0000 Samsung"}),
+    ("POST", "/api/orders", {"task_id": "task_\u0000", "offer_id": "techmart:TM-1001"}),
+    ("POST", "/api/orders/ord_1/confirm", {"challenge_id": "ch_\u0000", "code": "123456"}),
+    ("POST", "/api/sandbox/scenario", {"name": "price_spike", "offer_id": "techmart:\u0000"}),
+    ("POST", "/api/settings/confirm", {"request_id": "lim_\u0000", "code": "123456"}),
+])
+def test_nul_byte_is_rejected_not_500(method, path, body):
+    # Найдено schemathesis на PostgreSQL: текст в PostgreSQL не может содержать NUL, и такой параметр давал 500.
+    from fastapi.testclient import TestClient
+    r = TestClient(main.app, raise_server_exceptions=False).request(method, path, json=body)
+    assert r.status_code == 422, r.text
