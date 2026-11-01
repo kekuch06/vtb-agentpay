@@ -7,7 +7,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import audit, catalogs
@@ -150,10 +149,18 @@ def scenario(body: ScenarioIn):
 
 
 DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-if DIST.exists():
-    app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
 
-    @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str):
-        f = DIST / path
-        return FileResponse(f if path and f.is_file() else DIST / "index.html")
+
+@app.get("/{path:path}", include_in_schema=False)
+def spa(path: str):
+    """Собранный фронтенд. Отдаются только файлы внутри dist: путь из URL нормализуется и сверяется с корнем,
+    иначе «/..%2F..%2Fetc/passwd» читал бы любой файл сервера. Неизвестный путь API — 404, а не index.html."""
+    if path == "api" or path.startswith("api/"):
+        raise HTTPException(404, "не найдено")
+    root = DIST.resolve()
+    if not (root / "index.html").is_file():
+        raise HTTPException(404, "фронтенд не собран: make build")
+    f = (root / path).resolve()
+    if path and f.is_relative_to(root) and f.is_file():
+        return FileResponse(f)
+    return FileResponse(root / "index.html")
