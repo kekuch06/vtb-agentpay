@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import secrets
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from .. import audit, catalogs
 from ..models import Challenge, Order, Payment, PolicyResult, Task
@@ -20,6 +22,7 @@ CHALLENGE_TTL = timedelta(minutes=5)
 MAX_CODE_ATTEMPTS = 3  # неверных кодов на заказ, суммарно по всем выданным кодам
 MAX_CHALLENGES = 3  # запросов кода на заказ («не пришёл код»)
 TERMINAL = ("paid", "rejected", "expired")  # из этих статусов заказ не возвращается
+BANK_TZ = ZoneInfo(os.getenv("AGENTPAY_TZ", "Europe/Moscow"))
 
 settings = {"per_operation_limit_rub": 30_000, "daily_limit_rub": 100_000}
 
@@ -36,6 +39,11 @@ class PolicyViolation(Exception):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def bank_day(dt: datetime) -> date:
+    """Операционный день банка: дневной лимит обнуляется в полночь по часовому поясу банка, а не по UTC."""
+    return dt.astimezone(BANK_TZ).date()
 
 
 def order_hash(o: Order) -> str:
@@ -113,7 +121,7 @@ def evaluate(o: Order, task: Task, today: date) -> list[PolicyResult]:
     limit = settings["per_operation_limit_rub"]
     r.append(PolicyResult(rule="per_operation_limit", passed=o.amount_rub <= limit,
                           detail=f"лимит на операцию {_rub(limit)}" + ("" if o.amount_rub <= limit else " превышен")))
-    spent = sum(p.amount_rub for p in payments.values() if p.created_at.date() == _now().date())
+    spent = sum(p.amount_rub for p in payments.values() if bank_day(p.created_at) == bank_day(_now()))
     daily_ok = spent + o.amount_rub <= settings["daily_limit_rub"]
     r.append(PolicyResult(rule="daily_limit", passed=daily_ok,
                           detail=f"дневной лимит: потрачено {_rub(spent)} из {_rub(settings['daily_limit_rub'])}" + ("" if daily_ok else ", превышен")))
