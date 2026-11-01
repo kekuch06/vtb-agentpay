@@ -24,6 +24,7 @@ const RULE_RU: Record<string, string> = {
   payee_match: "Получатель платежа",
   price_recheck: "Перепроверка цены",
   stock_recheck: "Перепроверка наличия",
+  offer_recheck: "Перепроверка условий",
   task_budget: "Бюджет поручения",
   per_operation_limit: "Лимит на операцию",
   daily_limit: "Дневной лимит",

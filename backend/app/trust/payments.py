@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from .. import audit, catalogs
 from ..models import Challenge, Order, Payment, PolicyResult, Task
-from .verifier import _rub
+from .verifier import _rub, check_offer
 
 ORDER_TTL = timedelta(minutes=15)
 CHALLENGE_TTL = timedelta(minutes=5)
@@ -91,6 +91,13 @@ def evaluate(o: Order, task: Task, today: date) -> list[PolicyResult]:
                           else f"актуальная цена {_rub(fresh.total_rub) if fresh else '—'} отличается от суммы заказа {_rub(o.amount_rub)}"))
     stock_ok = fresh is not None and fresh.in_stock
     r.append(PolicyResult(rule="stock_recheck", passed=stock_ok, detail="товар в наличии" if stock_ok else "товара нет в наличии"))
+    # Условия поручения проверяются заново по актуальной карточке: продавец мог снять гарантию, сдвинуть доставку
+    # или дописать в описание инструкции агенту уже после того, как предложение прошло проверку.
+    rechecked = check_offer(fresh, task.constraints) if fresh is not None else None
+    lost = [c.name.lower() for c in rechecked.checks if not c.passed] if rechecked else ["карточка недоступна"]
+    r.append(PolicyResult(rule="offer_recheck", passed=not lost,
+                          detail="карточка продавца по-прежнему выполняет условия поручения" if not lost
+                          else f"карточка продавца изменилась, условия не выполняются: {', '.join(lost)}"))
     budget = task.constraints.max_total_rub
     budget_ok = budget is None or o.amount_rub <= budget
     r.append(PolicyResult(rule="task_budget", passed=budget_ok,
