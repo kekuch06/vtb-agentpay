@@ -26,11 +26,12 @@ export async function resetCatalogs(request) {
 }
 
 export const composer = (page) => page.locator("form.composer input");
-export const agentReplies = (page) => page.locator(".msg.agent:not(.typing)");
+export const agentReplies = (page) => page.locator(".msg.agent.reply");
 export const events = (page) => page.locator(".event");
 export const dialog = (page) => page.getByRole("dialog");
 
 export async function sendTask(page, text) {
+  if (isPhone(page) && !(await composer(page).isVisible())) await openTab(page, "Агент");
   const before = await agentReplies(page).count();
   await composer(page).fill(text);
   await composer(page).press("Enter");
@@ -38,13 +39,18 @@ export async function sendTask(page, text) {
   return agentReplies(page).last();
 }
 
+export const isPhone = (page) => page.viewportSize().width < 960;
+
+// Телефон: плавающая навигация внизу (в имени кнопки может быть счётчик). Компьютер: вкладки панели, чат виден всегда.
 export async function openTab(page, name) {
-  await page.getByRole("button", { name, exact: true }).click();
+  const re = new RegExp(`^${name}`);
+  if (isPhone(page)) await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: re }).click();
+  else if (name !== "Агент") await page.getByRole("tab", { name: re }).click();
 }
 
 export async function orderRecommended(page) {
   await openTab(page, "Предложения");
-  await page.getByRole("button", { name: "Оформить заказ" }).first().click();
+  await page.getByRole("button", { name: "Оформить заказ" }).filter({ visible: true }).first().click();
   await expect(page.locator(".order-card")).toBeVisible();
 }
 
@@ -64,7 +70,7 @@ export async function enterCode(page, code) {
   await page.getByRole("button", { name: "Подтвердить оплату" }).click();
 }
 
-export const orderStatus = (page) => page.locator(".order-card .row").first().locator("b");
+export const orderStatus = (page) => page.locator(".status-banner .status-title");
 export const orderAmount = (page) => page.locator(".order .row.big b");
 
 export async function pay(page) {
@@ -83,6 +89,9 @@ export async function sandbox(page, title) {
 
 // axe-core: ноль нарушений уровня serious и critical (WCAG 2.1 A/AA).
 export async function expectAccessible(page, label) {
+  // Контраст считается по итоговому кадру: ждём конца анимаций появления (бесконечные — индикатор набора — не ждём).
+  await page.waitForFunction(() => document.getAnimations().every(
+    (a) => a.playState !== "running" || a.effect?.getComputedTiming().iterations === Infinity));
   const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
   const report = bad.map((v) => `${v.id} (${v.impact}): ${v.help} — ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(", ")}`);

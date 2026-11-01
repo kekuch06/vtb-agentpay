@@ -47,11 +47,11 @@ test("неверный код трижды: заказ отклонён, пра�
   const code = await codeFromDevice(page);
   const wrong = code === "000000" ? "111111" : "000000";
   await enterCode(page, wrong);
-  await expect(dialog(page)).toContainText("осталось попыток: 2");
+  await expect(dialog(page)).toContainText(/осталось попыток: 2/i);
   await enterCode(page, wrong);
-  await expect(dialog(page)).toContainText("осталось попыток: 1");
+  await expect(dialog(page)).toContainText(/осталось попыток: 1/i);
   await enterCode(page, wrong);
-  await expect(events(page).last()).toContainText("превышено число попыток");
+  await expect(events(page).last()).toContainText(/превышено число попыток/i);
   await expect(orderStatus(page)).toHaveText("Отклонён");
   await expect(page.getByRole("button", { name: "Подтвердить оплату" })).toHaveCount(0);
   await openTab(page, "Журнал");
@@ -80,7 +80,7 @@ test("sandbox: рост цены между кодом и подтвержден
   await openTab(page, "Заказ");
   await page.getByRole("button", { name: "Ввести код подтверждения" }).click();
   await enterCode(page, code);
-  await expect(events(page).last()).toContainText("Платёж заблокирован после подтверждения");
+  await expect(events(page).last()).toContainText("Платёж остановлен после подтверждения");
   await expect(orderStatus(page)).toHaveText("Отклонён");
   await openTab(page, "Журнал");
   await expect(page.locator(".audit")).toContainText("policy.blocked_at_payment");
@@ -151,13 +151,11 @@ test("двойной Enter в поле кода: оплаченный заказ
   page.on("request", (r) => r.url().includes("/confirm") && confirms.push(r.url()));
   const input = page.locator("input.code");
   await input.fill(code);
-  // Два нажатия в одном кадре — как дребезг клавиши или нетерпеливый пользователь.
-  await input.evaluate((el) => {
-    for (let i = 0; i < 2; i++) el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
-  });
+  // Две отправки формы в одном кадре — как дребезг клавиши Enter или нетерпеливый пользователь.
+  await input.evaluate((el) => { el.form.requestSubmit(); el.form.requestSubmit(); });
   await expect(page.locator(".receipt")).toBeVisible();
   await expect(orderStatus(page)).toHaveText("Оплачен (sandbox)");
-  await expect(events(page).filter({ hasText: /отклонён|использовано|закрыт/ })).toHaveCount(0);
+  await expect(events(page).filter({ hasText: /отклонён|использовано|закрыт/i })).toHaveCount(0);
   expect(confirms, "запросов подтверждения").toHaveLength(1);
 });
 
@@ -170,4 +168,78 @@ test("ошибка сохранения лимита не выглядит ка�
   await select.selectOption("5000");
   await expect(select).toHaveValue(before);
   await expect(events(page).last()).toContainText("Лимит не изменён");
+});
+
+test("окно подтверждения: фокус на поле кода, Tab не уходит за окно, Esc закрывает", async ({ page }) => {
+  await sendTask(page, MAIN);
+  await orderRecommended(page);
+  await checkout(page);
+  await expect(page.locator("input.code")).toBeFocused();
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate(() => !!document.activeElement?.closest("[role=dialog]")), "фокус вышел из окна").toBe(true);
+  }
+  await page.keyboard.press("Escape");
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Ввести код подтверждения" })).toBeFocused();
+});
+
+test("доступность: axe без serious и critical на всех экранах", async ({ page }) => {
+  await expectAccessible(page, "стартовый экран");
+  await sendTask(page, MAIN);
+  await expectAccessible(page, "ответ агента");
+  await openTab(page, "Предложения");
+  await expectAccessible(page, "предложения");
+  await orderRecommended(page);
+  await expectAccessible(page, "заказ");
+  await checkout(page);
+  await expectAccessible(page, "окно подтверждения");
+  await page.keyboard.press("Escape");
+  await openTab(page, "Журнал");
+  await expectAccessible(page, "журнал");
+  await openTab(page, "Sandbox");
+  await expectAccessible(page, "sandbox");
+  await expectNoHorizontalScroll(page);
+});
+
+test("тёмная тема: axe без serious и critical", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expectAccessible(page, "старт, тёмная тема");
+  await sendTask(page, MAIN);
+  await expectAccessible(page, "ответ агента, тёмная тема");
+  await orderRecommended(page);
+  await checkout(page);
+  await expectAccessible(page, "окно подтверждения, тёмная тема");
+  await page.keyboard.press("Escape");
+  await openTab(page, "Sandbox");
+  await expectAccessible(page, "sandbox, тёмная тема");
+});
+
+test("клавиатура: поручение с клавиатуры, вкладки панели переключаются стрелками", async ({ page }) => {
+  test.skip(page.viewportSize().width < 960, "вкладки панели есть только на компьютере");
+  await composer(page).focus();
+  await page.keyboard.type(MAIN);
+  await page.keyboard.press("Enter");
+  await expect(agentReplies(page)).toHaveCount(1);
+  await page.getByRole("tab", { name: /^Предложения/ }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: /^Заказ/ })).toBeFocused();
+  await expect(page.getByRole("tab", { name: /^Заказ/ })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.getByRole("tab", { name: /^Sandbox/ })).toBeFocused();
+});
+
+test("на телефоне вкладка открывается с начала, а оформленный заказ не дублируется из чата", async ({ page }) => {
+  test.skip(page.viewportSize().width >= 960, "только телефон");
+  await sendTask(page, MAIN);
+  await page.mouse.wheel(0, 2000);
+  await page.waitForTimeout(800);  // прокрутка колесом плавная: даём ей закончиться, как пальцу перед нажатием
+  await openTab(page, "Предложения");
+  await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 3000 }).toBe(0);
+  await page.getByRole("button", { name: "Оформить заказ" }).filter({ visible: true }).first().click();
+  await openTab(page, "Агент");
+  await expect(agentReplies(page).last().getByRole("button", { name: "Оформить заказ" })).toHaveCount(0);
+  await agentReplies(page).last().getByRole("button", { name: "Открыть заказ" }).click();
+  await expect(orderStatus(page)).toHaveText("Заказ создан");
 });

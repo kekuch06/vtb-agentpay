@@ -14,9 +14,10 @@ export type Task = {
   task_id: string; text: string; parser: string; constraints: Constraints; offers: CheckedOffer[];
   recommended_offer_id: string | null; explanation: string; trace: TraceStep[];
 };
+export type OrderStatus = "draft" | "awaiting_confirmation" | "paid" | "rejected" | "expired";
 export type Order = {
   order_id: string; task_id: string; offer_id: string; merchant_id: string; merchant_name: string;
-  payee_account: string; sku: string; title: string; amount_kop: number; status: string; expires_at: string;
+  payee_account: string; sku: string; title: string; amount_kop: number; status: OrderStatus; expires_at: string;
 };
 export type PolicyResult = { rule: string; passed: boolean; detail: string };
 export type Challenge = {
@@ -33,6 +34,7 @@ export type AuditEntry = {
   order_id: string | null; data: Record<string, unknown>; hash: string;
 };
 export type Health = { llm: { mode: string; model: string; available: boolean }; today: string; sandbox: boolean };
+export type Limits = { per_operation_limit_rub: number; daily_limit_rub: number; spent_today_kop: number };
 
 export class ApiError extends Error {
   constructor(public status: number, public body: any) {
@@ -56,22 +58,38 @@ export const api = {
   task: (text: string) => req<Task>("POST", "/api/tasks", { text }),
   order: (task_id: string, offer_id: string) =>
     req<{ order: Order; policy: PolicyResult[] }>("POST", "/api/orders", { task_id, offer_id }),
+  getOrder: (id: string) => req<{ order: Order }>("GET", `/api/orders/${encodeURIComponent(id)}`),
   checkout: (id: string) =>
-    req<{ order: Order; policy: PolicyResult[]; challenge: Challenge | null }>("POST", `/api/orders/${id}/checkout`),
+    req<{ order: Order; policy: PolicyResult[]; challenge: Challenge | null }>("POST", `/api/orders/${encodeURIComponent(id)}/checkout`),
   confirm: (id: string, challenge_id: string, code: string) =>
-    req<{ order: Order; payment: Payment }>("POST", `/api/orders/${id}/confirm`, { challenge_id, code }),
+    req<{ order: Order; payment: Payment }>("POST", `/api/orders/${encodeURIComponent(id)}/confirm`, { challenge_id, code }),
   audit: (task_id?: string) =>
     req<{ entries: AuditEntry[]; chain: { ok: boolean; entries: number } }>(
       "GET", task_id ? `/api/audit?task_id=${encodeURIComponent(task_id)}` : "/api/audit"),
-  settings: () => req<{ per_operation_limit_rub: number; daily_limit_rub: number }>("GET", "/api/settings"),
-  setLimit: (v: number) => req<{ per_operation_limit_rub: number; daily_limit_rub: number }>("PUT", "/api/settings", { per_operation_limit_rub: v }),
+  settings: () => req<Limits>("GET", "/api/settings"),
+  setLimit: (v: number) => req<Limits>("PUT", "/api/settings", { per_operation_limit_rub: v }),
   device: () => req<{ messages: DeviceMessage[] }>("GET", "/api/sandbox/device"),
   scenario: (name: string, extra: { offer_id?: string; order_id?: string } = {}) =>
     req<{ message: string }>("POST", "/api/sandbox/scenario", { name, ...extra }),
 };
 
+/** Текст ошибки для человека: что случилось и что делать, без кодов HTTP и внутренних адресов. */
+export function errorText(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status >= 500 || e.message.startsWith("HTTP ")) return "Сервер ответил ошибкой. Повторите через минуту";
+    if (e.status === 422) return "Сервер не принял запрос: проверьте введённые данные";
+    return capitalize(e.message);
+  }
+  return "Сервер недоступен. Проверьте подключение и повторите";
+}
+
+export const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 export const rub = (v: number) => v.toLocaleString("ru-RU") + " ₽";
 // Суммы заказа и платежа приходят в копейках: 1848750 → «18 487,50 ₽», 1479000 → «14 790 ₽».
 export const money = (kop: number) =>
   (kop / 100).toLocaleString("ru-RU", { minimumFractionDigits: kop % 100 ? 2 : 0, maximumFractionDigits: 2 }) + " ₽";
 export const ddmm = (iso: string) => iso.slice(8, 10) + "." + iso.slice(5, 7);
+export const hhmm = (iso: string) => new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+// Номер счёта группами, как в платёжных документах: 40702 810 9 0000 0000001 (балансовый счёт, валюта, ключ, остальное).
+export const account = (n: string) =>
+  /^\d{20}$/.test(n) ? `${n.slice(0, 5)} ${n.slice(5, 8)} ${n.slice(8, 9)} ${n.slice(9, 13)} ${n.slice(13)}` : n;

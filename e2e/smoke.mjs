@@ -16,7 +16,7 @@ page.setDefaultTimeout(30_000);
 try {
   await page.goto(BASE);
   await page.getByRole("button", { name: TASK }).click();
-  await page.getByRole("button", { name: "Оформить заказ" }).first().click();
+  await page.getByRole("button", { name: "Оформить заказ" }).filter({ visible: true }).first().click();
   await page.getByRole("button", { name: "Проверить и перейти к оплате" }).click();
   const push = await page.locator(".modal .push").innerText();
   const code = push.match(/\b\d{6}\b/)?.[0];
@@ -25,7 +25,7 @@ try {
   await page.getByRole("button", { name: "Подтвердить оплату" }).click();
   const receipt = await page.locator(".receipt b").innerText();
   const amount = await page.locator(".order .row.big b").innerText();
-  await page.getByRole("button", { name: "Журнал" }).click();
+  await page.getByRole("tab", { name: "Журнал" }).click();
   const chain = await page.locator(".audit .pill").innerText();
   if (chain !== "Хеш-цепочка цела") throw new Error(`журнал: ${chain}`);
   if (errors.length) throw new Error(`ошибки в консоли: ${errors.join(" | ")}`);
