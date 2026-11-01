@@ -12,6 +12,7 @@ from typing import Literal
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.middleware.gzip import GZipMiddleware
 
 from . import audit, catalogs, db, store
 from .agent import llm, orchestrator
@@ -53,6 +54,20 @@ async def session(request: Request, call_next):
     if fresh:
         response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict", secure=COOKIE_SECURE, path="/")
     return response
+
+
+class StaticGZip(GZipMiddleware):
+    """Сжатие только статики интерфейса. Ответы API не сжимаются: в них коды подтверждения и данные заказа, а сжатие
+    рядом с данными, которые влияют на запрос, открывает утечку по длине ответа (класс атак BREACH)."""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
+app.add_middleware(StaticGZip, minimum_size=1024)
 
 
 def owner(request: Request) -> str:

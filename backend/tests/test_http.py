@@ -77,3 +77,12 @@ def test_llm_error_does_not_leak_internal_address(client, monkeypatch):
     t = client.post("/api/tasks", json={"text": "SSD Samsung 2 ТБ"}).json()
     assert t["parser"] == "rules"
     assert "vllm.internal" not in str(t)
+
+
+def test_static_is_gzipped_but_api_is_not(client, dist):
+    (dist / "assets" / "big.js").write_text("console.log(1);" * 500, encoding="utf-8")
+    r = client.get("/assets/big.js", headers={"Accept-Encoding": "gzip"})
+    assert r.headers.get("content-encoding") == "gzip"
+    t = client.post("/api/tasks", json={"text": "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"},
+                    headers={"Accept-Encoding": "gzip"})
+    assert len(t.content) > 1024 and "content-encoding" not in t.headers  # ответы API не сжимаются (BREACH)
