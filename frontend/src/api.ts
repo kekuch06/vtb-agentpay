@@ -64,7 +64,7 @@ export const api = {
   confirm: (id: string, challenge_id: string, code: string) =>
     req<{ order: Order; payment: Payment }>("POST", `/api/orders/${encodeURIComponent(id)}/confirm`, { challenge_id, code }),
   audit: (task_id?: string) =>
-    req<{ entries: AuditEntry[]; chain: { ok: boolean; entries: number } }>(
+    req<{ entries: AuditEntry[]; chain: { ok: boolean } }>(
       "GET", task_id ? `/api/audit?task_id=${encodeURIComponent(task_id)}` : "/api/audit"),
   settings: () => req<Limits>("GET", "/api/settings"),
   setLimit: (v: number) => req<Limits>("PUT", "/api/settings", { per_operation_limit_rub: v }),

@@ -169,7 +169,8 @@ def confirm(order_id: str, body: ConfirmIn, me: str = Depends(owner)):
 
 @app.get("/api/audit")
 def get_audit(task_id: str | None = None, me: str = Depends(owner)):
-    return {"entries": audit.entries(me, task_id), "chain": audit.verify_chain()}
+    # Клиенту — только признак целостности: число записей и голова цепочки описывают активность всего банка.
+    return {"entries": audit.entries(me, task_id), "chain": {"ok": audit.chain_ok()}}
 
 
 @app.get("/api/sandbox/device")

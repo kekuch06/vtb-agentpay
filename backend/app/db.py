@@ -61,6 +61,11 @@ _lock = threading.RLock()
 _target: str | Path = os.getenv("AGENTPAY_DATABASE_URL") or os.getenv("AGENTPAY_DATABASE_PATH") or DEFAULT
 _conn: Any = None
 _depth = 0
+_generation = 0  # растёт при смене хранилища: кеши, привязанные к содержимому базы, сбрасываются
+
+
+def generation() -> int:
+    return _generation
 
 
 def current() -> str | Path:
@@ -73,11 +78,12 @@ def is_pg(target: str | Path | None = None) -> bool:
 
 def use(target: str | Path) -> None:
     """Переключает хранилище (тесты, прогон метрик): путь к файлу SQLite или URL postgresql://."""
-    global _conn, _target
+    global _conn, _target, _generation
     with _lock:
         if _conn is not None:
             _conn.close()
         _conn, _target = None, target
+        _generation += 1
 
 
 class _Conn:
