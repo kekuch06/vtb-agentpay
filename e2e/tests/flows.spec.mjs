@@ -141,3 +141,22 @@ test("товар, которого нет в каталогах, не подме
   await openTab(page, "Предложения");
   await expect(page.getByRole("button", { name: "Оформить заказ" })).toHaveCount(0);
 });
+
+test("двойной Enter в поле кода: оплаченный заказ не превращается в отклонённый", async ({ page }) => {
+  await sendTask(page, MAIN);
+  await orderRecommended(page);
+  await checkout(page);
+  const code = await codeFromDevice(page);
+  const confirms = [];
+  page.on("request", (r) => r.url().includes("/confirm") && confirms.push(r.url()));
+  const input = page.locator("input.code");
+  await input.fill(code);
+  // Два нажатия в одном кадре — как дребезг клавиши или нетерпеливый пользователь.
+  await input.evaluate((el) => {
+    for (let i = 0; i < 2; i++) el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+  });
+  await expect(page.locator(".receipt")).toBeVisible();
+  await expect(orderStatus(page)).toHaveText("Оплачен (sandbox)");
+  await expect(events(page).filter({ hasText: /отклонён|использовано|закрыт/ })).toHaveCount(0);
+  expect(confirms, "запросов подтверждения").toHaveLength(1);
+});

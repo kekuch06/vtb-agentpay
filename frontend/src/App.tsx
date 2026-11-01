@@ -162,7 +162,8 @@ export default function App() {
       }
       if (msg.includes("отклонён") || msg.includes("использовано") || msg.includes("закрыт") || msg.includes("изменился")) {
         setChallenge(null);
-        setOrder({ ...order, status: "rejected" });
+        // Опоздавший отказ (повторная отправка того же кода) не превращает уже оплаченный заказ в отклонённый.
+        setOrder((cur) => (cur && cur.status === "paid" ? cur : { ...order, status: "rejected" }));
         push({ role: "event", tone: "bad", text: msg });
         return null;
       }
@@ -386,10 +387,19 @@ function ConfirmModal({ ch, push, order, onConfirm, onCancel }: {
   const [code, setCode] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Состояние busy обновится только к следующему кадру, а два Enter подряд приходят в один: без ref уходили
+  // два запроса с одним кодом, второй получал «подтверждение уже использовано».
+  const inFlight = useRef(false);
   async function submit() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
-    setErr(await onConfirm(code));
-    setBusy(false);
+    try {
+      setErr(await onConfirm(code));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
   }
   return (
     <div className="overlay">
