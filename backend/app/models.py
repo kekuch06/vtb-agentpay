@@ -123,6 +123,7 @@ class Challenge(BaseModel):
 class Payment(BaseModel):
     payment_id: str
     order_id: str
+    task_id: str
     amount_rub: int
     payee_account: str
     status: Literal["succeeded"]

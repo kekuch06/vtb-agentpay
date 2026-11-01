@@ -25,6 +25,7 @@ const RULE_RU: Record<string, string> = {
   price_recheck: "Перепроверка цены",
   stock_recheck: "Перепроверка наличия",
   offer_recheck: "Перепроверка условий",
+  task_open: "Одна покупка на поручение",
   task_budget: "Бюджет поручения",
   per_operation_limit: "Лимит на операцию",
   daily_limit: "Дневной лимит",

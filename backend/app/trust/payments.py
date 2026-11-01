@@ -100,6 +100,12 @@ def evaluate(o: Order, task: Task, today: date) -> list[PolicyResult]:
     r.append(PolicyResult(rule="offer_recheck", passed=not lost,
                           detail="карточка продавца по-прежнему выполняет условия поручения" if not lost
                           else f"карточка продавца изменилась, условия не выполняются: {', '.join(lost)}"))
+    # Поручение — одна покупка: второй заказ по нему (двойной клик, другой продавец) уже не оплачивается,
+    # иначе два заказа по поручению «до 16 тысяч» в сумме выходили за бюджет клиента.
+    paid_by_task = [p for p in payments.values() if p.task_id == o.task_id]
+    r.append(PolicyResult(rule="task_open", passed=not paid_by_task,
+                          detail="по поручению ещё нет оплаты" if not paid_by_task
+                          else f"по поручению уже оплачен заказ {paid_by_task[0].order_id}"))
     budget = task.constraints.max_total_rub
     budget_ok = budget is None or o.amount_rub <= budget
     r.append(PolicyResult(rule="task_budget", passed=budget_ok,
@@ -202,7 +208,7 @@ def confirm(o: Order, task: Task, challenge_id: str, code: str, today: date) -> 
 
 
 def _sandbox_pay(o: Order) -> Payment:
-    p = Payment(payment_id="pay_" + uuid.uuid4().hex[:10], order_id=o.order_id, amount_rub=o.amount_rub,
+    p = Payment(payment_id="pay_" + uuid.uuid4().hex[:10], order_id=o.order_id, task_id=o.task_id, amount_rub=o.amount_rub,
                 payee_account=o.payee_account, status="succeeded", created_at=_now())
     payments[p.payment_id] = p
     o.status = "paid"

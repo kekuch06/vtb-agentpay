@@ -193,3 +193,32 @@ def test_card_changed_after_confirmation_request_blocked(client, change):
     r = client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
     assert r.status_code == 409
     assert payments.payments == {}
+
+
+def _pay(client, o):
+    ch = client.post(f"/api/orders/{o['order_id']}/checkout").json()["challenge"]
+    if ch is None:
+        return None
+    return client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
+
+
+def test_one_purchase_per_task(client):
+    t = _task(client, "SSD Samsung 2 ТБ до 16 тысяч")
+    a, b = [x["offer"]["offer_id"] for x in t["offers"] if x["passed"]][:2]
+    oa, ob = _order(client, t, a).json()["order"], _order(client, t, b).json()["order"]
+    assert _pay(client, oa).status_code == 200
+    r = client.post(f"/api/orders/{ob['order_id']}/checkout").json()
+    assert r["challenge"] is None and any(p["rule"] == "task_open" and not p["passed"] for p in r["policy"])
+    assert len(payments.payments) == 1
+
+
+def test_one_purchase_per_task_when_both_awaiting(client):
+    t = _task(client, "SSD Samsung 2 ТБ до 16 тысяч")
+    a, b = [x["offer"]["offer_id"] for x in t["offers"] if x["passed"]][:2]
+    oa, ob = _order(client, t, a).json()["order"], _order(client, t, b).json()["order"]
+    cha = client.post(f"/api/orders/{oa['order_id']}/checkout").json()["challenge"]
+    chb = client.post(f"/api/orders/{ob['order_id']}/checkout").json()["challenge"]
+    assert client.post(f"/api/orders/{oa['order_id']}/confirm", json={"challenge_id": cha["challenge_id"], "code": cha["sandbox_code"]}).status_code == 200
+    r = client.post(f"/api/orders/{ob['order_id']}/confirm", json={"challenge_id": chb["challenge_id"], "code": chb["sandbox_code"]})
+    assert r.status_code == 409
+    assert sum(p.amount_rub for p in payments.payments.values()) <= 16_000
