@@ -732,6 +732,10 @@ function useDialogFocus(ref: { current: HTMLElement | null }, onEscape: () => vo
     const opener = document.activeElement as HTMLElement | null;
     const node = ref.current;
     document.body.classList.add("modal-open");
+    // Всё, что под окном, — inert: экранный диктор, клавиатура и проверки доступности его не видят (WAI-ARIA Dialog).
+    const background = Array.from(node?.closest(".overlay")?.parentElement?.children ?? [])
+      .filter((el) => !el.classList.contains("overlay"));
+    background.forEach((el) => el.setAttribute("inert", ""));
     const focusable = () => Array.from(node?.querySelectorAll<HTMLElement>(
       "button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex='-1'])") ?? []);
     function onKey(e: KeyboardEvent) {
@@ -748,6 +752,7 @@ function useDialogFocus(ref: { current: HTMLElement | null }, onEscape: () => vo
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.classList.remove("modal-open");
+      background.forEach((el) => el.removeAttribute("inert"));
       // Кнопка, открывшая окно, к этому моменту может исчезнуть: возвращаем фокус после перерисовки.
       requestAnimationFrame(() => {
         const usable = opener && opener !== document.body && opener.isConnected && !opener.matches(":disabled");

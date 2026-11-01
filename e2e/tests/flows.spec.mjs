@@ -179,8 +179,10 @@ test("окно подтверждения: фокус на поле кода, Ta
     await page.keyboard.press("Tab");
     expect(await page.evaluate(() => !!document.activeElement?.closest("[role=dialog]")), "фокус вышел из окна").toBe(true);
   }
+  expect(await page.locator("main").getAttribute("inert"), "фон под окном должен быть inert").not.toBeNull();
   await page.keyboard.press("Escape");
   await expect(dialog(page)).toHaveCount(0);
+  expect(await page.locator("main").getAttribute("inert")).toBeNull();
   await expect(page.getByRole("button", { name: "Ввести код подтверждения" })).toBeFocused();
 });
 
