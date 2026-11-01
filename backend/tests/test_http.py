@@ -107,3 +107,14 @@ def test_oversized_api_body_is_rejected(client, chunked):
     assert r.status_code == 413
     assert client.post("/api/tasks", json={"text": "SSD Samsung 2 ТБ"}).status_code == 200
 
+
+def test_short_secret_key_stops_startup(tmp_path):
+    # Было: с коротким AGENTPAY_SECRET_KEY сервер стартовал и отвечал 500 на каждый запрос. Ошибка конфигурации должна
+    # останавливать запуск и называть переменную.
+    import os
+    import subprocess
+    import sys
+    env = {**os.environ, "AGENTPAY_SECRET_KEY": "short", "AGENTPAY_DATABASE_PATH": str(tmp_path / "db.sqlite3")}
+    r = subprocess.run([sys.executable, "-c", "import app.main"], env=env, capture_output=True, text=True,
+                       cwd=os.path.dirname(os.path.dirname(__file__)))
+    assert r.returncode != 0 and "AGENTPAY_SECRET_KEY" in r.stderr

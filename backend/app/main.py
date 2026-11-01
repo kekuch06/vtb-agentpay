@@ -14,10 +14,13 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.gzip import GZipMiddleware
 
-from . import audit, catalogs, db, store
+from . import audit, catalogs, db, keys, store
 from .agent import llm, orchestrator
 from .models import Task
 from .trust import payments
+
+# Ключ HMAC проверяется при запуске: с неверным ключом процесс не поднимается, а не отвечает 500 на каждый запрос.
+keys.key()
 
 # Swagger UI загружает скрипты с CDN — в закрытом контуре это внешний ресурс, поэтому по умолчанию выключен.
 API_DOCS = os.getenv("AGENTPAY_API_DOCS", "0") == "1"
