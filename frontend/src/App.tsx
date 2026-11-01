@@ -183,10 +183,13 @@ export default function App() {
       const r = await api.checkout(order.order_id);
       setOrder(r.order); setPolicy(r.policy); setPolicyFresh(true);
       if (r.challenge) {
-        const id = r.challenge.challenge_id;
-        setChallenge(r.challenge);
-        // Код приходит отдельным каналом — sandbox-имитацией push-уведомления на устройство клиента.
-        setDeviceMsg((await api.device().catch(() => ({ messages: [] }))).messages.find((m) => m.challenge_id === id) ?? null);
+        const ch = r.challenge;
+        // Код приходит отдельным каналом — sandbox-имитацией push-уведомления на устройство клиента. Новый запрос
+        // и его push ставятся вместе: иначе окно успевало показать код из прошлого уведомления.
+        setDeviceMsg(null);
+        const inbox = await api.device().catch(() => ({ messages: [] as DeviceMessage[] }));
+        setChallenge(ch);
+        setDeviceMsg(inbox.messages.find((m) => m.challenge_id === ch.challenge_id) ?? null);
         setShowConfirm(true);
         event("ok", `Policy Engine: все ${r.policy.length} правил пройдены. Код подтверждения отправлен на устройство`);
       } else {
@@ -702,6 +705,7 @@ function ConfirmModal({ ch, device, order, onConfirm, onResend, onCancel }: {
   const box = useRef<HTMLDivElement>(null);
   const inFlight = useRef(false);  // два Enter в одном кадре: busy обновится только к следующему, ref — сразу
   useDialogFocus(box, onCancel);
+  const push = device?.challenge_id === ch.challenge_id ? device : null;  // только уведомление этого запроса
 
   async function submit() {
     if (inFlight.current || code.length !== 6 || err?.resend) return;
@@ -727,10 +731,10 @@ function ConfirmModal({ ch, device, order, onConfirm, onResend, onCancel }: {
             <span>Уведомление на устройстве</span>
             <time>сейчас</time>
           </div>
-          {device ? (
+          {push ? (
             <>
-              <b>Код для оплаты {money(device.amount_kop)}</b>
-              <p>Получатель {device.merchant_name}. Код <span className="push-code">{device.code}</span>, никому его не сообщайте.</p>
+              <b>Код для оплаты {money(push.amount_kop)}</b>
+              <p>Получатель {push.merchant_name}. Код <span className="push-code">{push.code}</span>, никому его не сообщайте.</p>
             </>
           ) : <p>Уведомление не пришло. Запросите код ещё раз.</p>}
         </div>

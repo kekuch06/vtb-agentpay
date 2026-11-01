@@ -243,3 +243,30 @@ test("на телефоне вкладка открывается с начал�
   await agentReplies(page).last().getByRole("button", { name: "Открыть заказ" }).click();
   await expect(orderStatus(page)).toHaveText("Заказ создан");
 });
+
+test("код истёк: окно предлагает новый код, оплата проходит с ним", async ({ page }) => {
+  await sendTask(page, MAIN);
+  await orderRecommended(page);
+  await checkout(page);
+  const old = await codeFromDevice(page);
+  await page.getByRole("button", { name: "Отмена" }).click();
+  await sandbox(page, "Код истёк");
+  await openTab(page, "Заказ");
+  await page.getByRole("button", { name: "Ввести код подтверждения" }).click();
+  await enterCode(page, old);
+  await expect(dialog(page).getByRole("alert")).toContainText("истёк");
+  await expect(orderStatus(page)).toHaveText("Ждёт подтверждения");  // заказ не закрыт, неверных попыток не добавилось
+  // Push с новым кодом приходит с задержкой — как на настоящем устройстве. Пока его нет, старый код показывать нельзя:
+  // введённый по ошибке, он сжёг бы одну из трёх попыток по заказу.
+  await page.route("**/api/sandbox/device", async (r) => { await new Promise((ok) => setTimeout(ok, 700)); await r.continue(); });
+  await dialog(page).getByRole("button", { name: "Запросить новый код" }).click();
+  await expect(dialog(page).getByRole("button", { name: "Подтвердить оплату" })).toBeVisible();
+  expect(await page.locator(".modal .push").innerText(), "в окне старый код").not.toContain(old);  // мгновенный снимок, без ожидания
+  await page.unroute("**/api/sandbox/device");
+  await expect(page.locator(".modal .push")).toContainText(/\b\d{6}\b/);
+  const fresh = await codeFromDevice(page);
+  expect(fresh).not.toBe(old);
+  await enterCode(page, fresh);
+  await expect(page.locator(".receipt")).toBeVisible();
+  await expect(orderStatus(page)).toHaveText("Оплачен (sandbox)");
+});
