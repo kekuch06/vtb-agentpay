@@ -292,3 +292,33 @@ test("контраст границ полей и кольца фокуса не
     expect(r.ring, `${scheme}: кольцо фокуса`).toBeGreaterThanOrEqual(3);
   }
 });
+
+test("статус заказа объявляется экранным диктором, даже когда чат скрыт (телефон)", async ({ page }) => {
+  // Было: на телефоне при открытой вкладке «Заказ» чат скрыт, и отказ Policy Engine не попадал ни в один live-регион.
+  await sendTask(page, MAIN);
+  await orderRecommended(page);
+  await sandbox(page, "Товар закончился");
+  await openTab(page, "Заказ");
+  await checkout(page);
+  await expect(page.getByRole("status").filter({ hasText: "Отклонён" })).toBeVisible();
+});
+
+test("журнал: опоздавший ответ не перезаписывает свежий", async ({ page }) => {
+  const created = page.waitForResponse((r) => r.url().endsWith("/api/tasks") && r.request().method() === "POST");
+  await sendTask(page, MAIN);
+  const task = await (await created).json();
+  let first = true;
+  await page.route("**/api/audit*", async (route) => {
+    if (!first) return route.continue();
+    first = false;
+    const response = await route.fetch();  // ответ снят сейчас, а отдан позже — как медленная сеть
+    await new Promise((ok) => setTimeout(ok, 1500));
+    await route.fulfill({ response });
+  });
+  await openTab(page, "Журнал");  // запрос A: медленный и без новой записи
+  await page.request.post("/api/orders", { data: { task_id: task.task_id, offer_id: task.recommended_offer_id } });
+  await openTab(page, "Предложения");
+  await openTab(page, "Журнал");  // запрос B: быстрый, с записью о заказе, пока A ещё в пути
+  await page.waitForTimeout(2000);  // A пришёл после B
+  await expect(page.locator(".audit")).toContainText("order.created");
+});

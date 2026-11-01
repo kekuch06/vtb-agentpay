@@ -100,6 +100,7 @@ export default function App() {
   const [audit, setAudit] = useState<{ entries: AuditEntry[]; ok: boolean } | "error" | null>(null);
   const chatEnd = useRef<HTMLDivElement>(null);
   const nextId = useRef(1);
+  const auditRequest = useRef(0);
 
   async function loadStatus() {
     api.health().then(setHealth).catch(() => setHealth(null));
@@ -130,11 +131,13 @@ export default function App() {
   }
 
   async function refreshAudit() {
+    // Журнал обновляется на каждое действие, и ответы могут прийти не по порядку: показываем только последний запрос.
+    const n = ++auditRequest.current;
     try {
       const a = await api.audit(task?.task_id);
-      setAudit({ entries: a.entries, ok: a.chain.ok });
+      if (n === auditRequest.current) setAudit({ entries: a.entries, ok: a.chain.ok });
     } catch {
-      setAudit("error");
+      if (n === auditRequest.current) setAudit("error");
     }
   }
 
@@ -631,8 +634,9 @@ function OrderView({ order, policy, fresh, payment, onCheckout, busy, onOpenConf
     <div className="order">
       <h2 className="sheet-title">Заказ</h2>
       {/* Оплаченный заказ: квитанция и есть статус — фокус после закрытия окна переходит сюда. */}
+      {/* role=status: на телефоне чат с событиями скрыт, смену статуса экранный диктор объявляет отсюда. */}
       <div className={`status-banner s-${order.status}${payment ? " receipt" : ""}`} tabIndex={payment ? -1 : undefined}
-           data-return-focus={payment ? "" : undefined}>
+           data-return-focus={payment ? "" : undefined} role="status">
         <span className="status-icon" aria-hidden="true"><Icon name={s.icon} /></span>
         <div>
           <b className="status-title">{s.title}</b>
