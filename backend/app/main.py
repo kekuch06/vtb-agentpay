@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -38,7 +39,7 @@ class ConfirmIn(BaseModel):
 
 
 class ScenarioIn(BaseModel):
-    name: str  # price_spike | out_of_stock | payee_swap | reset
+    name: Literal["price_spike", "out_of_stock", "payee_swap", "reset"]
     offer_id: str | None = None
     order_id: str | None = None
 

@@ -126,10 +126,15 @@ def fetch_offer(offer_id: str, today: date) -> Offer | None:
 
 # --- Сценарии sandbox: имитация изменений на стороне продавца между выбором и оплатой ---
 
+RAW_KEYS = {"techmart": ("items", "sku"), "digistore": ("products", "id"), "komplekt": ("catalog", "article")}
+
+
 def _find_raw(offer_id: str) -> dict | None:
-    merchant_id, sku = offer_id.split(":", 1)
-    items = {"techmart": ("items", "sku"), "digistore": ("products", "id"), "komplekt": ("catalog", "article")}[merchant_id]
-    return next((it for it in _state[merchant_id][items[0]] if it[items[1]] == sku), None)
+    merchant_id, _, sku = offer_id.partition(":")
+    if merchant_id not in RAW_KEYS or not sku:
+        return None
+    items, key = RAW_KEYS[merchant_id]
+    return next((it for it in _state[merchant_id][items] if it.get(key) == sku), None)
 
 
 def apply_scenario(name: str, offer_id: str) -> str:

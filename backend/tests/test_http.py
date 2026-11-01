@@ -30,3 +30,17 @@ def test_spa_serves_index_and_assets(client, dist):
 def test_unknown_api_route_is_404_not_spa(client, dist):
     r = client.get("/api/nope")
     assert r.status_code == 404 and "id=root" not in r.text
+
+
+@pytest.mark.parametrize("body", [
+    {"name": "price_spike", "offer_id": "abc"},
+    {"name": "out_of_stock"},
+    {"name": "price_spike", "offer_id": "nope:1"},
+    {"name": "price_spike", "offer_id": "techmart:NOPE"},
+    {"name": "payee_swap"},
+    {"name": "teleport", "offer_id": "techmart:TM-1001"},
+])
+def test_bad_sandbox_scenario_is_client_error(body):
+    from fastapi.testclient import TestClient
+    r = TestClient(main.app, raise_server_exceptions=False).post("/api/sandbox/scenario", json=body)
+    assert 400 <= r.status_code < 500
