@@ -62,6 +62,10 @@ SCHEMA_PG = TABLES + [
 ]
 ALL_TABLES = ["audit", "payments", "device_inbox", "challenges", "limit_requests", "orders", "tasks", "settings", "sandbox"]
 
+# AGENTPAY_DB_MIGRATE=0 — схему создаёт отдельный python -m app.migrate под владельцем, а приложение работает под
+# ролью без прав на DDL и на изменение журнала (compose). По умолчанию схема создаётся при подключении (make run, тесты).
+MIGRATE_ON_CONNECT = os.getenv("AGENTPAY_DB_MIGRATE", "1") != "0"
+
 _lock = threading.RLock()
 _target: str | Path = os.getenv("AGENTPAY_DATABASE_URL") or os.getenv("AGENTPAY_DATABASE_PATH") or DEFAULT
 _conn: Any = None
@@ -125,14 +129,14 @@ def _connect() -> _Conn:
         _conn = None
     if _conn is None:
         conn = raw_connect()
-        if conn.pg:
+        if conn.pg and MIGRATE_ON_CONNECT:
             conn.execute("SELECT pg_advisory_lock(?)", (LOCK_KEY,))  # схему создаёт один процесс за раз
             try:
                 for stmt in SCHEMA_PG:
                     conn.execute(stmt)
             finally:
                 conn.execute("SELECT pg_advisory_unlock(?)", (LOCK_KEY,))
-        else:
+        elif not conn.pg:
             conn.execute("PRAGMA journal_mode=WAL")
             for stmt in SCHEMA_SQLITE:
                 conn.execute(stmt)

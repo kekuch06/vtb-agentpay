@@ -72,6 +72,7 @@ jobs:
         run: |
           {
             echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "POSTGRES_APP_PASSWORD=$(openssl rand -hex 16)"
             echo "AGENTPAY_SECRET_KEY=$(openssl rand -hex 32)"
             echo "AGENTPAY_TODAY=2026-11-02"
             echo "AGENTPAY_PORT=8080"
@@ -79,7 +80,7 @@ jobs:
             echo "AGENTPAY_RATE_TASKS_IP=2000/60"
           } > .env
       - name: Стенд без Ollama (разбор правилами)
-        run: docker compose up -d --build --wait postgres backend frontend
+        run: docker compose up -d --build --wait postgres backend frontend  # migrate поднимается как зависимость backend
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: 24
