@@ -155,9 +155,14 @@ def device(me: str = Depends(owner)):
     return {"messages": store.device_messages(me)}
 
 
+def _limits(me: str) -> dict:
+    # Сколько уже оплачено за банковский день — для интерфейса: клиент видит, сколько осталось до дневного лимита.
+    return {**payments.settings_for(me), "spent_today_kop": store.spent_on(me, payments.bank_day(payments._now()))}
+
+
 @app.get("/api/settings")
 def get_settings(me: str = Depends(owner)):
-    return payments.settings_for(me)
+    return _limits(me)
 
 
 @app.put("/api/settings")
@@ -165,7 +170,7 @@ def put_settings(body: SettingsIn, me: str = Depends(owner)):
     with db.tx():
         store.put_settings(me, {**store.get_settings(me), **body.model_dump()})
         audit.log("user", "user", "settings.changed", body.model_dump(), owner=me)
-    return payments.settings_for(me)
+    return _limits(me)
 
 
 @app.get("/api/catalogs")
