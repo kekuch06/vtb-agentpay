@@ -104,3 +104,33 @@ def test_answer_without_json_falls_back_to_rules(openai, client):
         m.available = m_available
     assert t["parser"] == "rules"
     assert t["recommended_offer_id"]  # разбор правилами довёл поручение до рекомендации
+
+
+def test_health_does_not_wait_for_silent_model(client, monkeypatch):
+    # Было: /api/health ждал ответа модели — модель, которая приняла соединение и молчит, давала 3,1 с при таймауте
+    # healthcheck 3 с. Раз в 15 с ту же задержку получало и поручение клиента.
+    import time
+    monkeypatch.setattr(llm, "MODE", "openai")
+    monkeypatch.setattr(llm, "PROVIDER", "openai")
+    monkeypatch.setattr(llm, "BASE_URL", "http://model.local/v1")
+    monkeypatch.setattr(llm, "_probe", lambda: time.sleep(2) or True)
+    for checked_at in (0.0, time.monotonic() - 3600):  # ещё не проверяли; проверка устарела
+        monkeypatch.setattr(llm, "_AVAILABLE", (checked_at, False))
+        t0 = time.perf_counter()
+        assert client.get("/api/health").status_code == 200
+        assert time.perf_counter() - t0 < 0.5
+
+
+def test_network_failure_marks_model_unavailable(openai, monkeypatch):
+    import time
+
+    def down(*a, **k):
+        raise httpx.ConnectError("нет соединения")
+    openai("qwen3-8b", FakeServer(J))
+    monkeypatch.setattr(llm.httpx, "post", down)
+    monkeypatch.setattr(llm, "MODE", "openai")
+    monkeypatch.setattr(llm, "_AVAILABLE", (time.monotonic(), True))
+    with pytest.raises(llm.LLMUnavailable):
+        llm.extract("SSD Samsung 2 ТБ", MON)
+    monkeypatch.setattr(llm, "_probe", lambda: pytest.fail("доступность должна браться из отказа, без нового опроса"))
+    assert llm.available() is False  # следующее поручение не ждёт таймаут модели

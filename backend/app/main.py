@@ -105,7 +105,7 @@ class SettingsIn(BaseModel):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "llm": {"mode": llm.MODE, "model": llm.MODEL, "available": llm.available()}, "today": today().isoformat(),
+    return {"ok": True, "llm": {"mode": llm.MODE, "model": llm.MODEL, "available": llm.available(block=False)}, "today": today().isoformat(),
             "sandbox": True}
 
 

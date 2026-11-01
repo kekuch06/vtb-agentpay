@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from datetime import date
 
@@ -58,19 +59,43 @@ def _reason(e: Exception) -> str:
     return type(e).__name__
 
 
-_AVAILABLE: tuple[float, bool] = (0.0, False)
+_AVAILABLE: tuple[float, bool] = (0.0, False)  # (когда проверяли, доступна ли); 0.0 — ещё не проверяли
 AVAILABLE_TTL = 15.0  # секунд: внешний API не опрашивается на каждое поручение
+_probing = threading.Lock()
 
 
-def available() -> bool:
+def _set_available(ok: bool) -> None:
     global _AVAILABLE
+    _AVAILABLE = (time.monotonic(), ok)
+
+
+def _refresh_in_background() -> None:
+    if not _probing.acquire(blocking=False):
+        return  # проверка уже идёт
+
+    def run() -> None:
+        try:
+            _set_available(_probe())
+        finally:
+            _probing.release()
+    threading.Thread(target=run, daemon=True).start()
+
+
+def available(block: bool = True) -> bool:
+    """Доступна ли модель. Запрос пользователя не ждёт опроса модели: устаревшее значение обновляется в фоне,
+    а проверка здоровья (block=False) не ждёт даже самый первый опрос. Иначе модель, которая приняла соединение и
+    молчит, задерживала /api/health на 3 с — дольше таймаута healthcheck контейнера."""
     if MODE == "rules":
         return False
     checked_at, ok = _AVAILABLE
-    if time.monotonic() - checked_at < AVAILABLE_TTL:
-        return ok
-    ok = _probe()
-    _AVAILABLE = (time.monotonic(), ok)
+    if checked_at == 0.0:
+        if not block:
+            _refresh_in_background()
+            return False
+        _set_available(_probe())  # первое поручение после запуска: узнаём, есть ли модель
+        return _AVAILABLE[1]
+    if time.monotonic() - checked_at >= AVAILABLE_TTL:
+        _refresh_in_background()
     return ok
 
 
@@ -164,6 +189,7 @@ def extract(text: str, today: date) -> Constraints:
     except Exception as e:  # сеть, таймаут, модель не загружена
         # Пользователю — только категория ошибки: текст исключения содержит внутренние адреса контура.
         log.warning("LLM недоступна: %r", e)
+        _set_available(False)  # следующие поручения не ждут таймаут, пока фоновый опрос не увидит модель снова
         raise LLMUnavailable(_reason(e)) from e
     try:
         return Constraints.model_validate(parse_content(content))

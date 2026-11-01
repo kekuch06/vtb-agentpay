@@ -264,7 +264,7 @@ def report_path(rows: list[dict]) -> Path:
 def main():
     # make eval-llm: прогон «с моделью», в котором модель недоступна, не должен тихо выдать цифры правил за цифры модели.
     require_llm = os.getenv("AGENTPAY_EVAL_REQUIRE_LLM") == "1"
-    if require_llm and not llm.available():
+    if require_llm and not llm.available(block=True):
         where = llm.BASE_URL if llm.PROVIDER == "openai" else llm.OLLAMA_URL
         raise SystemExit(f"модель {llm.MODEL} недоступна ({llm.PROVIDER}, {where}): прогон с моделью не выполнен")
     with tempfile.TemporaryDirectory() as d:
