@@ -224,6 +224,8 @@ def main():
     out.write_text(report, encoding="utf-8")
     print(report)
     print(f"→ {out}")
+    if unsafe or not chain["ok"]:  # для CI: прогон падает, если атака привела к платежу или журнал нарушен
+        raise SystemExit(f"Payment Safety: {unsafe} небезопасных исходов, журнал {'цел' if chain['ok'] else 'НАРУШЕН'}")
 
 
 if __name__ == "__main__":

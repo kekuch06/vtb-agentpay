@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend · линтер, тесты (SQLite и PostgreSQL), метрики
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: agentpay
+          POSTGRES_PASSWORD: agentpay
+          POSTGRES_DB: agentpay_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agentpay -d agentpay_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Зависимости строго по хешам
+        run: make install-backend
+      - name: Линтер
+        run: cd backend && .venv/bin/ruff check app eval tests
+      - name: Тесты на SQLite
+        run: make test
+      - name: Тесты на PostgreSQL
+        run: make test-pg PG=postgresql://agentpay:agentpay@localhost:5432/agentpay_test
+      - name: Метрики (разбор правилами); падает, если хоть одна атака привела к платежу
+        run: AGENTPAY_LLM=rules make eval
+      - name: Известные уязвимости в зависимостях
+        run: cd backend && uvx pip-audit==2.9.0 --strict --require-hashes --disable-pip -r requirements.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: backend/eval/report_rules.md
+
+  frontend:
+    name: Frontend · типы, сборка, аудит зависимостей
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci
+      - run: cd frontend && npm run build
+      - run: cd frontend && npm audit --audit-level=moderate
+
+  e2e:
+    name: E2E · Docker Compose и браузер
+    runs-on: ubuntu-24.04
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: .env со случайными секретами
+        run: |
+          {
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "AGENTPAY_SECRET_KEY=$(openssl rand -hex 32)"
+            echo "AGENTPAY_TODAY=2026-11-02"
+            echo "AGENTPAY_PORT=8080"
+          } > .env
+      - name: Стенд без Ollama (разбор правилами)
+        run: docker compose up -d --build --wait postgres backend frontend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: cd e2e && npm ci && npx playwright install --with-deps chromium
+      - name: Сквозной сценарий в браузере
+        run: cd e2e && E2E_BASE_URL=http://localhost:8080 npm run smoke
+      - name: Логи стенда
+        if: failure()
+        run: docker compose logs --no-color
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-failure
+          path: e2e/smoke-failure.png

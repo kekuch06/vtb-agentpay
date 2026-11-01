@@ -1,8 +1,10 @@
-.PHONY: install run backend frontend build test test-pg lint eval lock up down
+.PHONY: install install-backend e2e run backend frontend build test test-pg lint eval lock up down
 
-install:
-	cd backend && uv venv --python 3.12 .venv && uv pip install --python .venv --require-hashes -r requirements.txt -r requirements-dev.txt
+install: install-backend
 	cd frontend && npm ci
+
+install-backend:
+	cd backend && uv venv --python 3.12 .venv && uv pip install --python .venv --require-hashes -r requirements.txt -r requirements-dev.txt
 
 build:
 	cd frontend && npm run build
@@ -42,3 +44,7 @@ up:
 
 down:
 	docker compose down
+
+# Сквозной сценарий в браузере против поднятого стенда (make up)
+e2e:
+	cd e2e && npm ci && npm run smoke
