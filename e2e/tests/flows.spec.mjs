@@ -160,3 +160,14 @@ test("двойной Enter в поле кода: оплаченный заказ
   await expect(events(page).filter({ hasText: /отклонён|использовано|закрыт/ })).toHaveCount(0);
   expect(confirms, "запросов подтверждения").toHaveLength(1);
 });
+
+test("ошибка сохранения лимита не выглядит как успех", async ({ page }) => {
+  test.info().annotations.push({ type: "console-errors-expected" });
+  await openTab(page, "Sandbox");
+  const select = page.getByLabel("Лимит на одну операцию");
+  const before = await select.inputValue();
+  await page.route("**/api/settings", (r) => r.request().method() === "PUT" ? r.fulfill({ status: 500, body: "{}" }) : r.continue());
+  await select.selectOption("5000");
+  await expect(select).toHaveValue(before);
+  await expect(events(page).last()).toContainText("Лимит не изменён");
+});

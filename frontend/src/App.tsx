@@ -181,8 +181,14 @@ export default function App() {
   }
 
   async function saveLimit(v: number) {
-    setLimit(v);
-    await api.setLimit(v).catch(() => {});
+    // Показываем только то, что сохранил сервер: иначе при ошибке на экране был бы лимит, которого нет в Policy Engine.
+    try {
+      const s = await api.setLimit(v);
+      setLimit(s.per_operation_limit_rub);
+      push({ role: "event", tone: "ok", text: `Лимит на одну операцию: ${rub(s.per_operation_limit_rub)}.` });
+    } catch (e) {
+      push({ role: "event", tone: "bad", text: `Лимит не изменён: ${errText(e)}.` });
+    }
   }
 
   const llmLabel = health

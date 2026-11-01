@@ -64,7 +64,7 @@ export const api = {
     req<{ entries: AuditEntry[]; chain: { ok: boolean; entries: number } }>(
       "GET", task_id ? `/api/audit?task_id=${encodeURIComponent(task_id)}` : "/api/audit"),
   settings: () => req<{ per_operation_limit_rub: number; daily_limit_rub: number }>("GET", "/api/settings"),
-  setLimit: (v: number) => req("PUT", "/api/settings", { per_operation_limit_rub: v }),
+  setLimit: (v: number) => req<{ per_operation_limit_rub: number; daily_limit_rub: number }>("PUT", "/api/settings", { per_operation_limit_rub: v }),
   device: () => req<{ messages: DeviceMessage[] }>("GET", "/api/sandbox/device"),
   scenario: (name: string, extra: { offer_id?: string; order_id?: string } = {}) =>
     req<{ message: string }>("POST", "/api/sandbox/scenario", { name, ...extra }),
