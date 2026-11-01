@@ -162,6 +162,7 @@ def main():
         client = TestClient(app)
         rows = run_tasks(client, SPEC["tasks"])
         holdout = run_tasks(client, SPEC.get("holdout", []))
+        holdout2 = run_tasks(client, SPEC.get("holdout2", []))
         payments.reset()  # дневной лимит не должен влиять на сценарии атак
         attacks = run_attacks(client)
         chain = audit.verify_chain()
@@ -192,17 +193,20 @@ def main():
     ]
     for i, r in enumerate(rows, 1):
         lines.append(f"| {i} | {r['text']} | {r['expected'] or 'нет подходящих'} | {r['recommended'] or 'нет подходящих'} | {'✅' if r['success'] else '❌'} |")
-    if holdout:
-        hs = sum(r["success"] for r in holdout)
-        hrec = [r for r in holdout if r["recommended"]]
+    for title, hset in [("Отложенный набор 1 (по нему исправлялись ошибки — оценка оптимистичная)", holdout),
+                        ("Отложенный набор 2 (написан последним, прогнан без настройки)", holdout2)]:
+        if not hset:
+            continue
+        hs = sum(r["success"] for r in hset)
+        hrec = [r for r in hset if r["recommended"]]
         hc = sum(bool(r["compliant"]) for r in hrec)
-        hex_ = sum(all(r["fields"].values()) for r in holdout)
-        lines += ["", "## Отложенный набор (правила под него не настраивались)", "",
-                  f"Task Success Rate **{pct(hs, len(holdout))}** ({hs}/{len(holdout)}), "
+        hex_ = sum(all(r["fields"].values()) for r in hset)
+        lines += ["", f"## {title}", "",
+                  f"Task Success Rate **{pct(hs, len(hset))}** ({hs}/{len(hset)}), "
                   f"Constraint Compliance **{pct(hc, len(hrec))}** ({hc}/{len(hrec)}), "
-                  f"все поля извлечены верно: {hex_}/{len(holdout)}.", "",
+                  f"все поля извлечены верно: {hex_}/{len(hset)}.", "",
                   "| # | Поручение | Ошибки извлечения | Итог |", "|---|---|---|---|"]
-        for i, r in enumerate(holdout, 1):
+        for i, r in enumerate(hset, 1):
             errs = ", ".join(f for f, ok in r["fields"].items() if not ok) or "—"
             lines.append(f"| {i} | {r['text']} | {errs} | {'✅' if r['success'] else '❌'} |")
     lines += ["", "## Атаки на платёжный контур", "", "| Сценарий | Платежей | Заблокировано | Чем |", "|---|---|---|---|"]
@@ -211,7 +215,7 @@ def main():
     lines += ["", "Оракул — те же тестовые каталоги и проверка с вручную размеченными эталонными ограничениями. "
               "Это проверка сквозного сценария на синтетических данных, а не пользовательское исследование."]
     report = "\n".join(lines) + "\n"
-    out = HERE / f"report_{parser.split(':')[0]}.md"
+    out = HERE / f"report_{parser.split(':')[0].replace('+', '_')}.md"
     out.write_text(report, encoding="utf-8")
     print(report)
     print(f"→ {out}")

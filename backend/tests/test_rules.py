@@ -31,3 +31,16 @@ def test_deadline_and_warranty():
 def test_model_keyword():
     c = parse("Samsung 990 EVO на 2TB", MON)
     assert c.keywords == ["990 evo"] and c.capacity_gb == 2000
+
+
+def test_grounding_drops_hallucinations():
+    from app.agent.grounding import merge
+    from app.models import Constraints
+    text = "Найди SSD Samsung 2 ТБ до пятницы"
+    llm_c = Constraints(category="ssd", brand="Samsung", capacity_gb=2000, deliver_by=date(2026, 11, 13),
+                        max_total_rub=50000, keywords=["990 pro", "nvme"])
+    c, fixes = merge(llm_c, parse(text, MON), text)
+    assert c.deliver_by == date(2026, 11, 6)  # дату считает код
+    assert c.max_total_rub is None  # бюджета в тексте нет
+    assert c.keywords == []  # придуманная модель и характеристика отброшены
+    assert fixes

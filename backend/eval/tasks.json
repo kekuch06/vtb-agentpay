@@ -295,5 +295,110 @@
     "deliver_by": "2026-11-07"
    }
   }
+ ],
+ "_comment_holdout2": "Второй отложенный набор: написан после правок по первому отложенному, прогоняется один раз без настройки.",
+ "holdout2": [
+  {
+   "text": "Посоветуй ссдшник Кингстон на пару терабайт, денег до 14 тыщ",
+   "gt": {
+    "category": "ssd",
+    "brand": "Kingston",
+    "capacity_gb": 2000,
+    "max_total_rub": 14000
+   }
+  },
+  {
+   "text": "нужны беспроводные наушники Sony, бюджет до 28 500, гарантия хотя бы год",
+   "gt": {
+    "category": "headphones",
+    "brand": "Sony",
+    "max_total_rub": 28500,
+    "min_warranty_months": 12
+   }
+  },
+  {
+   "text": "Хочу Samsung 990 Pro 2TB, привезите до субботы",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "deliver_by": "2026-11-07",
+    "keywords": [
+     "990 pro"
+    ]
+   }
+  },
+  {
+   "text": "Жесткий диск Seagate на 4 ТБ дешевле 9 тысяч",
+   "gt": {
+    "category": "hdd",
+    "brand": "Seagate",
+    "capacity_gb": 4000,
+    "max_total_rub": 9000
+   }
+  },
+  {
+   "text": "SSD на 1 терабайт с гарантией минимум 5 лет",
+   "gt": {
+    "category": "ssd",
+    "capacity_gb": 1000,
+    "min_warranty_months": 60
+   }
+  },
+  {
+   "text": "Купить оперативную память Kingston 32GB, получить нужно послезавтра",
+   "gt": {
+    "category": "ram",
+    "brand": "Kingston",
+    "capacity_gb": 32,
+    "deliver_by": "2026-11-04"
+   }
+  },
+  {
+   "text": "Монитор Самсунг Odyssey G5, не дороже 23 000 рублей с доставкой",
+   "gt": {
+    "category": "monitor",
+    "brand": "Samsung",
+    "max_total_rub": 23000,
+    "keywords": [
+     "odyssey g5"
+    ]
+   }
+  },
+  {
+   "text": "накопитель WD SN850X на 2 тб, доставка в течение недели",
+   "gt": {
+    "category": "ssd",
+    "brand": "Western Digital",
+    "capacity_gb": 2000,
+    "deliver_by": "2026-11-09",
+    "keywords": [
+     "sn850x"
+    ]
+   }
+  },
+  {
+   "text": "Samsung SSD 2 ТБ, главное чтобы пришёл до 4 ноября и стоил меньше 15 тысяч",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "deliver_by": "2026-11-04",
+    "max_total_rub": 15000
+   }
+  },
+  {
+   "text": "Crucial P3 1TB до 6 тысяч рублей с гарантией",
+   "gt": {
+    "category": "ssd",
+    "brand": "Crucial",
+    "capacity_gb": 1000,
+    "max_total_rub": 6000,
+    "min_warranty_months": 1,
+    "keywords": [
+     "p3"
+    ]
+   }
+  }
  ]
 }

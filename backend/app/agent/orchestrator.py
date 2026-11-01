@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from datetime import date, datetime, timezone
@@ -12,7 +13,7 @@ from datetime import date, datetime, timezone
 from .. import audit, catalogs
 from ..models import Constraints, Task, TraceStep
 from ..trust.verifier import CATEGORY_RU, _gb, _rub, check_offer
-from . import llm, rules
+from . import grounding, llm, rules
 
 
 def _ms(t0: float) -> int:
@@ -20,10 +21,20 @@ def _ms(t0: float) -> int:
 
 
 def extract_constraints(text: str, today: date) -> tuple[Constraints, str, str]:
-    """Возвращает (ограничения, источник, пояснение). LLM — если доступна, иначе правила."""
+    """Возвращает (ограничения, источник, пояснение). LLM — если доступна, иначе правила.
+
+    По умолчанию ответ модели сверяется с текстом поручения (grounding); AGENTPAY_GROUNDING=off
+    отключает сверку — нужно только для сравнения в прогоне метрик."""
     if llm.available():
         try:
-            return llm.extract(text, today), f"llm:{llm.MODEL}", "ответ модели прошёл проверку схемы"
+            llm_c = llm.extract(text, today)
+            if os.getenv("AGENTPAY_GROUNDING", "on") == "off":
+                return llm_c, f"llm:{llm.MODEL}", "ответ модели прошёл проверку схемы"
+            merged, fixes = grounding.merge(llm_c, rules.parse(text, today), text)
+            note = "ответ модели прошёл проверку схемы и сверку с текстом"
+            if fixes:
+                note += f"; исправлено кодом: {', '.join(fixes)}"
+            return merged, f"llm+grounding:{llm.MODEL}", note
         except llm.LLMUnavailable as e:
             return rules.parse(text, today), "rules", f"модель недоступна или ответ отклонён ({str(e)[:120]}), использован разбор правилами"
     return rules.parse(text, today), "rules", "локальная модель не запущена, использован разбор правилами"
