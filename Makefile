@@ -1,4 +1,4 @@
-.PHONY: install install-backend e2e run backend frontend build test test-pg lint eval lock up down
+.PHONY: install install-backend e2e eval-llm run backend frontend build test test-pg lint eval lock up down
 
 install: install-backend
 	cd frontend && npm ci
@@ -32,6 +32,11 @@ lint:
 
 eval:
 	cd backend && .venv/bin/python -m eval.run
+
+# Метрики с локальной моделью: нужен запущенный Ollama с моделью AGENTPAY_LLM_MODEL (по умолчанию qwen2.5:3b)
+eval-llm:
+	cd backend && AGENTPAY_LLM=ollama AGENTPAY_GROUNDING=off .venv/bin/python -m eval.run
+	cd backend && AGENTPAY_LLM=ollama AGENTPAY_GROUNDING=on .venv/bin/python -m eval.run
 
 # Пересборка зафиксированных версий backend после правки requirements*.in
 lock:
