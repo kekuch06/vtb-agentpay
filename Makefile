@@ -1,4 +1,4 @@
-.PHONY: install install-backend e2e eval-llm run backend frontend build test test-pg lint eval lock up down
+.PHONY: install install-backend e2e e2e-local eval-llm run backend frontend build test test-pg lint eval lock up down
 
 install: install-backend
 	cd frontend && npm ci
@@ -50,6 +50,11 @@ up:
 down:
 	docker compose down
 
-# Сквозной сценарий в браузере против поднятого стенда (make up)
+# Сквозные сценарии в браузере (телефон 390 и компьютер 1280) против поднятого стенда (make up)
+E2E_BASE_URL ?= http://localhost:8080
 e2e:
-	cd e2e && npm ci && npm run smoke
+	cd e2e && npm ci && E2E_BASE_URL=$(E2E_BASE_URL) npm run smoke && E2E_BASE_URL=$(E2E_BASE_URL) npx playwright test
+
+# То же без Docker: локальный сервер на собранном фронтенде, разбор правилами, свежая SQLite
+e2e-local: build
+	cd e2e && npm ci && npx playwright test

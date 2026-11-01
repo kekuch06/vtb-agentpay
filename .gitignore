@@ -8,3 +8,5 @@ frontend/dist/
 .DS_Store
 *.tsbuildinfo
 .env
+e2e/test-results/
+e2e/playwright-report/
