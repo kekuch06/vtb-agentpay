@@ -70,6 +70,16 @@ def run(text: str, today: date | None = None, owner: str | None = None) -> Task:
     trace.append(TraceStep(step="Разбор поручения", zone="untrusted", detail=f"{describe(constraints)} · {note}", ms=_ms(t0)))
     audit.log("agent", "untrusted", "constraints.extracted", {"parser": parser, "constraints": constraints.model_dump(mode="json")}, task_id=task_id, owner=owner)
 
+    # Товар не назван — ни категории, ни бренда, ни модели: «любой товар» не подставляется. Иначе на «видеокарту RTX»
+    # или «что-нибудь до 10 тысяч» агент рекомендовал самый дешёвый товар каталога, например SSD.
+    if constraints.category == "other" and not constraints.brand and not constraints.keywords:
+        explanation = ("Не понял, какой товар нужен: в поручении нет категории, бренда или модели из подключённых каталогов. "
+                       "Уточните, например: «SSD Samsung 2 ТБ до 16 тысяч».")
+        trace.append(TraceStep(step="Рекомендация", zone="trusted", detail="товар не распознан, поиск по каталогам не выполнялся"))
+        audit.log("agent", "trusted", "recommendation.made", {"offer_id": None, "reason": "product_not_recognized"}, task_id=task_id, owner=owner)
+        return Task(task_id=task_id, text=text, created_at=datetime.now(timezone.utc), parser=parser, constraints=constraints,
+                    offers=[], recommended_offer_id=None, explanation=explanation, trace=trace)
+
     checked = []
     for merchant_id in catalogs.ADAPTERS:
         t0 = time.perf_counter()

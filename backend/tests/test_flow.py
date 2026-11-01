@@ -221,3 +221,12 @@ def test_one_purchase_per_task_when_both_awaiting(client):
     r = client.post(f"/api/orders/{ob['order_id']}/confirm", json={"challenge_id": chb["challenge_id"], "code": code_for(client, chb)})
     assert r.status_code == 409
     assert sum(p.amount_kop for p in payments.all_payments()) <= 16_000_00
+
+
+@pytest.mark.parametrize("text", ["Видеокарта RTX 4090", "Купи что-нибудь до 10 тысяч", "Ноутбук Lenovo до 80 тысяч"])
+def test_unrecognized_product_is_not_replaced_by_another(client, text):
+    # Нераспознанный товар не превращается в «любой товар»: раньше на «Видеокарта RTX 4090» агент рекомендовал SSD.
+    t = _task(client, text)
+    assert t["recommended_offer_id"] is None
+    assert not any(o["passed"] for o in t["offers"])
+    assert "Лучший вариант" not in t["explanation"]

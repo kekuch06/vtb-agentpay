@@ -11,6 +11,7 @@ CATEGORIES = [
     ("ssd", r"\bssd\b|ссд|твердотельн|накопител"),
     ("hdd", r"\bhdd\b|жёстк|жестк|винчестер"),
     ("ram", r"оперативк|оперативн|\bозу\b|\bram\b|ddr\d"),
+    ("gpu", r"видеокарт|\bgpu\b|\brtx\b|geforce|radeon"),
     ("monitor", r"монитор"),
     ("headphones", r"наушник"),
 ]

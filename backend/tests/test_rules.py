@@ -55,3 +55,9 @@ def test_impossible_dates_do_not_crash():
 def test_impossible_date_via_api(client):
     r = client.post("/api/tasks", json={"text": "SSD Samsung 2 ТБ до 31.02"})
     assert r.status_code == 200 and r.json()["constraints"]["deliver_by"] is None
+
+
+def test_gpu_category():
+    # Видеокарт в тестовых каталогах нет, но категория должна распознаваться — иначе поручение считалось «любым товаром».
+    assert parse("Видеокарта RTX 4090", MON).category == "gpu"
+    assert parse("нужна geforce до 60 тысяч", MON).category == "gpu"

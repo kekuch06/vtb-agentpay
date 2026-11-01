@@ -134,3 +134,10 @@ test("сервер недоступен: понятное сообщение в�
   await expect(events(page).last()).toContainText("Сервер недоступен");
   await expect(composer(page)).toBeEnabled();
 });
+
+test("товар, которого нет в каталогах, не подменяется другим", async ({ page }) => {
+  const reply = await sendTask(page, "Видеокарта RTX 4090");
+  await expect(reply).not.toContainText("Лучший вариант");
+  await openTab(page, "Предложения");
+  await expect(page.getByRole("button", { name: "Оформить заказ" })).toHaveCount(0);
+});
