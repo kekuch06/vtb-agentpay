@@ -59,16 +59,16 @@ def describe(c: Constraints) -> str:
     return ", ".join(parts) or "условия не распознаны"
 
 
-def run(text: str, today: date | None = None) -> Task:
+def run(text: str, today: date | None = None, owner: str | None = None) -> Task:
     today = today or date.today()
     task_id = "task_" + uuid.uuid4().hex[:10]
     trace: list[TraceStep] = []
-    audit.log("user", "user", "task.created", {"text": text}, task_id=task_id)
+    audit.log("user", "user", "task.created", {"text": text}, task_id=task_id, owner=owner)
 
     t0 = time.perf_counter()
     constraints, parser, note = extract_constraints(text, today)
     trace.append(TraceStep(step="Разбор поручения", zone="untrusted", detail=f"{describe(constraints)} · {note}", ms=_ms(t0)))
-    audit.log("agent", "untrusted", "constraints.extracted", {"parser": parser, "constraints": constraints.model_dump(mode="json")}, task_id=task_id)
+    audit.log("agent", "untrusted", "constraints.extracted", {"parser": parser, "constraints": constraints.model_dump(mode="json")}, task_id=task_id, owner=owner)
 
     checked = []
     for merchant_id in catalogs.ADAPTERS:
@@ -79,7 +79,7 @@ def run(text: str, today: date | None = None) -> Task:
                                detail=f"получено {len(offers)} карточек, по категории {len(relevant)}"
                                       + (f", отброшено некорректных {broken}" if broken else ""), ms=_ms(t0)))
         audit.log("agent", "untrusted", "catalog.searched", {"merchant": merchant_id, "offers": len(offers), "relevant": len(relevant),
-                                                             "broken": broken}, task_id=task_id)
+                                                             "broken": broken}, task_id=task_id, owner=owner)
         checked += [check_offer(o, constraints) for o in relevant]
 
     t0 = time.perf_counter()
@@ -92,13 +92,13 @@ def run(text: str, today: date | None = None) -> Task:
     audit.log("verifier", "trusted", "offers.verified", {
         "total": len(checked), "passed": [c.offer.offer_id for c in passed],
         "suspicious": [c.offer.offer_id for c in injected],
-    }, task_id=task_id)
+    }, task_id=task_id, owner=owner)
 
     best = passed[0] if passed else None
     explanation = _explain(constraints, checked, passed, injected)
     trace.append(TraceStep(step="Рекомендация", zone="trusted",
                            detail=f"{best.offer.title} · {best.offer.merchant_name}" if best else "подходящих предложений нет"))
-    audit.log("agent", "trusted", "recommendation.made", {"offer_id": best.offer.offer_id if best else None}, task_id=task_id)
+    audit.log("agent", "trusted", "recommendation.made", {"offer_id": best.offer.offer_id if best else None}, task_id=task_id, owner=owner)
 
     # Порядок для интерфейса: прошедшие по рейтингу, затем отклонённые.
     ordered = passed + sorted(rejected, key=lambda c: c.offer.total_kop)

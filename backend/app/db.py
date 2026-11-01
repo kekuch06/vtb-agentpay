@@ -17,24 +17,26 @@ from typing import Any, Iterator
 DEFAULT = Path(__file__).resolve().parent.parent / "data" / "agentpay.sqlite3"
 
 SCHEMA = [
+    # owner — клиент (хеш сессии): объекты другого клиента для API не существуют.
     """CREATE TABLE IF NOT EXISTS tasks (
-        task_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, doc TEXT NOT NULL)""",
+        task_id TEXT PRIMARY KEY, owner TEXT NOT NULL, created_at TEXT NOT NULL, doc TEXT NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS orders (
-        order_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, doc TEXT NOT NULL)""",
+        order_id TEXT PRIMARY KEY, owner TEXT NOT NULL, task_id TEXT NOT NULL, doc TEXT NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS challenges (
         challenge_id TEXT PRIMARY KEY, order_id TEXT NOT NULL, used INTEGER NOT NULL, doc TEXT NOT NULL)""",
     # UNIQUE — вторая линия защиты: даже при ошибке в коде БД не примет второй платёж по заказу или поручению.
     """CREATE TABLE IF NOT EXISTS payments (
-        payment_id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, task_id TEXT NOT NULL UNIQUE,
+        payment_id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, task_id TEXT NOT NULL UNIQUE, owner TEXT NOT NULL,
         bank_day TEXT NOT NULL, amount_kop BIGINT NOT NULL CHECK (amount_kop > 0), doc TEXT NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS challenges_order ON challenges (order_id)",
-    "CREATE INDEX IF NOT EXISTS payments_day ON payments (bank_day)",
+    "CREATE INDEX IF NOT EXISTS payments_day ON payments (owner, bank_day)",
+    "CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, doc TEXT NOT NULL)",
     """CREATE TABLE IF NOT EXISTS audit (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ts TEXT NOT NULL, actor TEXT NOT NULL, zone TEXT NOT NULL, action TEXT NOT NULL,
-        task_id TEXT, order_id TEXT, data TEXT NOT NULL,
+        owner TEXT, task_id TEXT, order_id TEXT, data TEXT NOT NULL,
         prev_hash TEXT NOT NULL, hash TEXT NOT NULL)""",
-    "CREATE INDEX IF NOT EXISTS audit_task ON audit (task_id)",
+    "CREATE INDEX IF NOT EXISTS audit_owner ON audit (owner, task_id)",
     "CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END",
     "CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END",
 ]

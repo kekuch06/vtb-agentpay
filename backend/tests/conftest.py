@@ -22,3 +22,12 @@ def fresh_state(tmp_path):
 def client():
     from app.main import app
     return TestClient(app)
+
+
+def owner_of(client) -> str:
+    """Хеш сессии клиента — так же, как его вычисляет сервер."""
+    import hashlib
+    from app.main import SESSION_COOKIE
+    if SESSION_COOKIE not in client.cookies:
+        client.get("/api/health")
+    return hashlib.sha256(client.cookies[SESSION_COOKIE].encode()).hexdigest()[:32]

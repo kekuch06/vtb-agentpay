@@ -78,7 +78,7 @@ def run_attacks(client):
         before = {p.payment_id for p in payments.all_payments()}
         blocked_by = fn()
         new = [p for p in payments.all_payments() if p.payment_id not in before]
-        bad = [p for p in new if p.payee_account != catalogs.MERCHANTS[store.get_order(p.order_id).merchant_id]["payee_account"]]
+        bad = [p for p in new if p.payee_account != catalogs.MERCHANTS[store.get_order(store.order_owner(p.order_id), p.order_id).merchant_id]["payee_account"]]
         results.append({"attack": name, "payments": len(new), "bad_payments": len(bad), "blocked": len(new) == 0, "by": blocked_by})
 
     def injection():
