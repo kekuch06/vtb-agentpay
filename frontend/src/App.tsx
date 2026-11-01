@@ -293,7 +293,7 @@ export default function App() {
               <ul className="hero-facts">
                 <li className="mob"><Icon name="lock" size={16} />Sandbox: деньги не списываются</li>
                 {limits && <li>Сегодня оплачено {money(limits.spent_today_kop)} из {rub(limits.daily_limit_rub)}</li>}
-                <li>{parserLabel}</li>
+                <li className="desk">{parserLabel}</li>
               </ul>
             </div>
             <ol className="hero-steps" aria-label="Как проходит покупка">
@@ -311,13 +311,13 @@ export default function App() {
             <span className="agent-avatar" aria-hidden="true"><Icon name="sparkle" /></span>
             <div>
               <h2 id="chat-title">Агент покупок</h2>
-              <small>{busy ? "Работает…" : "Видит только текст поручения"}</small>
+              <small>{busy ? "Работает…" : <>Видит только текст поручения<span className="mob">. {parserLabel}</span></>}</small>
             </div>
           </div>
-          <div className="msgs" role="log" aria-label="Переписка с агентом">
+          <div className={`msgs${msgs.length ? "" : " fresh"}`} role="log" aria-label="Переписка с агентом">
             <div className="msg agent intro">
               <span className="sender">Агент</span>
-              <p>Опишите покупку обычным языком. Я найду предложения у трёх тестовых продавцов и проверю условия. Заказ оформляете вы, оплату подтверждаете кодом с устройства.</p>
+              <p>Опишите покупку обычным языком. Я подберу и проверю предложения трёх продавцов, а оплату подтверждаете вы — кодом с устройства.</p>
             </div>
             {health === null && (
               <div className="event bad">
@@ -338,17 +338,25 @@ export default function App() {
             {busy && <div className="msg agent typing" role="status" aria-label="Агент работает"><span /><span /><span /></div>}
             <div ref={chatEnd} className="chat-end" />
           </div>
-          <form className="composer" onSubmit={(e) => { e.preventDefault(); send(input); }}>
-            <label htmlFor="task-input" className="sr-only">Поручение агенту</label>
-            <input id="task-input" value={input} onChange={(e) => setInput(e.target.value)} maxLength={500} autoComplete="off"
-                   placeholder="Опишите покупку" enterKeyHint="send" />
-            <button className="send" disabled={busy || !input.trim()} aria-label="Отправить поручение"><Icon name="send" /></button>
-          </form>
+          <div className="dock">
+            {/* На телефоне примеры — ряд быстрых действий над строкой ввода, как в чате банка: всегда в первом экране. */}
+            {msgs.length === 0 && (
+              <div className="quick" aria-label="Примеры поручений">
+                {EXAMPLES.map((x) => <button key={x} onClick={() => send(x)} disabled={busy}>{x}</button>)}
+              </div>
+            )}
+            <form className="composer" onSubmit={(e) => { e.preventDefault(); send(input); }}>
+              <label htmlFor="task-input" className="sr-only">Поручение агенту</label>
+              <input id="task-input" value={input} onChange={(e) => setInput(e.target.value)} maxLength={500} autoComplete="off"
+                     placeholder="Опишите покупку" enterKeyHint="send" />
+              <button className="send" disabled={busy || !input.trim()} aria-label="Отправить поручение"><Icon name="send" /></button>
+            </form>
+          </div>
         </section>
 
         <section className="sheet panel" aria-label="Покупка">
           <Segmented tab={tab} onChange={setTab} order={order} offersCount={passedCount} />
-          <div className="panel-body" id="panel-body" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+          <div className="panel-body" id="panel-body" role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
             {tab === "offers" && <Offers task={task} onOrder={makeOrder} busy={busy} onChat={() => setView("chat")} />}
             {tab === "order" && (
               <OrderView order={order} policy={policy} fresh={policyFresh} payment={payment} onCheckout={checkout} busy={busy}
