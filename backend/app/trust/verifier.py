@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from ..models import Check, CheckedOffer, Constraints, Offer
 
@@ -9,14 +10,28 @@ CATEGORY_RU = {"ssd": "SSD", "hdd": "HDD", "ram": "оперативная пам
 
 # Признаки попытки управлять агентом через карточку товара или подменить реквизиты.
 INJECTION_PATTERNS = [
-    r"игнорируй", r"ignore (all |previous )", r"system\s*:", r"инструкци", r"подтверждение не требуется",
-    r"переведи", r"\b\d{20}\b", r"реквизит", r"\bassistant\s*:",
+    r"игнорируй", r"забудь", r"не учитывай", r"ignore (all |previous )", r"disregard", r"system\s*:", r"\bassistant\s*:",
+    r"(предыдущ|прежн|прошл|все|системн)\w*\s+(инструкц|указани)", r"инструкци\w*\s+(для\s+)?(агент|ассистент|модел|бот)",
+    r"подтверждение не требуется", r"переведи", r"\b\d{20}\b", r"реквизит",
 ]
+
+# Обфускация, которой проверку обходили бы без нормализации: невидимые символы внутри слова,
+# латиница вместо похожей кириллицы (и наоборот), разделители внутри номера счёта.
+INVISIBLE = dict.fromkeys(map(ord, "\u00ad\u200b\u200c\u200d\u200e\u200f\u2060\ufeff"), None)
+LAT_TO_CYR = str.maketrans("aeopcyxkmthb", "аеорсухкмтнв")
+CYR_TO_LAT = str.maketrans("аеорсухкмтнв", "aeopcyxkmthb")
+
+
+def _normalized(offer: Offer) -> tuple[str, str]:
+    t = unicodedata.normalize("NFKC", f"{offer.title} {offer.brand} {offer.sku} {offer.description}")
+    t = t.translate(INVISIBLE).lower().replace("ё", "е")
+    t = re.sub(r"(?<=\d)[\s\-\u2010-\u2015./_]+(?=\d)", "", t)  # «4081 7810 …», «40817-810-…» → один номер
+    return t.translate(LAT_TO_CYR), t.translate(CYR_TO_LAT)
 
 
 def listing_is_clean(offer: Offer) -> tuple[bool, str]:
-    text = f"{offer.title} {offer.description}".lower()
-    hits = [p for p in INJECTION_PATTERNS if re.search(p, text)]
+    variants = _normalized(offer)
+    hits = [p for p in INJECTION_PATTERNS if any(re.search(p, v) for v in variants)]
     if hits:
         return False, "в карточке товара найдены инструкции для агента или платёжные реквизиты — предложение исключено"
     return True, "посторонних инструкций и реквизитов нет"
