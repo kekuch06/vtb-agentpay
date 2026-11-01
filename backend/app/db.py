@@ -37,6 +37,11 @@ TABLES = [
         bank_day TEXT NOT NULL, amount_kop BIGINT NOT NULL CHECK (amount_kop > 0), doc TEXT NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS payments_day ON payments (owner, bank_day)",
     "CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, doc TEXT NOT NULL)",
+    # Сценарии sandbox клиента (рост цены, товар закончился): действуют только на него и переживают перезапуск.
+    "CREATE TABLE IF NOT EXISTS sandbox (owner TEXT PRIMARY KEY, doc TEXT NOT NULL)",
+    # Запросы на повышение лимита: применяются только после кода с устройства клиента.
+    """CREATE TABLE IF NOT EXISTS limit_requests (
+        request_id TEXT PRIMARY KEY, owner TEXT NOT NULL, used INTEGER NOT NULL, doc TEXT NOT NULL)""",
 ]
 AUDIT_COLUMNS = """ts TEXT NOT NULL, actor TEXT NOT NULL, zone TEXT NOT NULL, action TEXT NOT NULL,
         owner TEXT, task_id TEXT, order_id TEXT, data TEXT NOT NULL, prev_hash TEXT NOT NULL, hash TEXT NOT NULL"""
@@ -55,12 +60,21 @@ SCHEMA_PG = TABLES + [
     "CREATE OR REPLACE TRIGGER audit_no_update BEFORE UPDATE OR DELETE ON audit FOR EACH ROW EXECUTE FUNCTION audit_append_only()",
     "CREATE OR REPLACE TRIGGER audit_no_truncate BEFORE TRUNCATE ON audit FOR EACH STATEMENT EXECUTE FUNCTION audit_append_only()",
 ]
-ALL_TABLES = ["audit", "payments", "device_inbox", "challenges", "orders", "tasks", "settings"]
+ALL_TABLES = ["audit", "payments", "device_inbox", "challenges", "limit_requests", "orders", "tasks", "settings", "sandbox"]
+
+# AGENTPAY_DB_MIGRATE=0 — схему создаёт отдельный python -m app.migrate под владельцем, а приложение работает под
+# ролью без прав на DDL и на изменение журнала (compose). По умолчанию схема создаётся при подключении (make run, тесты).
+MIGRATE_ON_CONNECT = os.getenv("AGENTPAY_DB_MIGRATE", "1") != "0"
 
 _lock = threading.RLock()
 _target: str | Path = os.getenv("AGENTPAY_DATABASE_URL") or os.getenv("AGENTPAY_DATABASE_PATH") or DEFAULT
 _conn: Any = None
 _depth = 0
+_generation = 0  # растёт при смене хранилища: кеши, привязанные к содержимому базы, сбрасываются
+
+
+def generation() -> int:
+    return _generation
 
 
 def current() -> str | Path:
@@ -73,11 +87,12 @@ def is_pg(target: str | Path | None = None) -> bool:
 
 def use(target: str | Path) -> None:
     """Переключает хранилище (тесты, прогон метрик): путь к файлу SQLite или URL postgresql://."""
-    global _conn, _target
+    global _conn, _target, _generation
     with _lock:
         if _conn is not None:
             _conn.close()
         _conn, _target = None, target
+        _generation += 1
 
 
 class _Conn:
@@ -114,14 +129,14 @@ def _connect() -> _Conn:
         _conn = None
     if _conn is None:
         conn = raw_connect()
-        if conn.pg:
+        if conn.pg and MIGRATE_ON_CONNECT:
             conn.execute("SELECT pg_advisory_lock(?)", (LOCK_KEY,))  # схему создаёт один процесс за раз
             try:
                 for stmt in SCHEMA_PG:
                     conn.execute(stmt)
             finally:
                 conn.execute("SELECT pg_advisory_unlock(?)", (LOCK_KEY,))
-        else:
+        elif not conn.pg:
             conn.execute("PRAGMA journal_mode=WAL")
             for stmt in SCHEMA_SQLITE:
                 conn.execute(stmt)
@@ -132,12 +147,22 @@ def _connect() -> _Conn:
 @contextmanager
 def tx() -> Iterator[_Conn]:
     """Транзакция под блокировкой записи. Вложенный вызов присоединяется к внешней транзакции."""
-    global _depth
+    global _depth, _conn
     with _lock:
         conn = _connect()
         if _depth == 0:
             if conn.pg:
-                conn.execute("BEGIN")
+                try:
+                    conn.execute("BEGIN")
+                except Exception as e:
+                    # Сервер БД перезапускался или соединение оборвала сеть: это видно только на первой команде.
+                    # Внутри транзакции ещё ничего не сделано, поэтому переоткрыть соединение и начать заново безопасно.
+                    import psycopg
+                    if not isinstance(e, (psycopg.OperationalError, psycopg.InterfaceError)):
+                        raise
+                    _conn = None
+                    conn = _connect()
+                    conn.execute("BEGIN")
                 conn.execute("SELECT pg_advisory_xact_lock(?)", (LOCK_KEY,))
             else:
                 conn.execute("BEGIN IMMEDIATE")

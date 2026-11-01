@@ -1,4 +1,6 @@
-from datetime import date
+from datetime import date, timedelta
+
+import pytest
 
 from app.agent.rules import parse
 
@@ -55,3 +57,24 @@ def test_impossible_dates_do_not_crash():
 def test_impossible_date_via_api(client):
     r = client.post("/api/tasks", json={"text": "SSD Samsung 2 ТБ до 31.02"})
     assert r.status_code == 200 and r.json()["constraints"]["deliver_by"] is None
+
+
+def test_gpu_category():
+    # Видеокарт в тестовых каталогах нет, но категория должна распознаваться — иначе поручение считалось «любым товаром».
+    assert parse("Видеокарта RTX 4090", MON).category == "gpu"
+    assert parse("нужна geforce до 60 тысяч", MON).category == "gpu"
+
+
+@pytest.mark.parametrize("text", ["SSD 0 ТБ", "ssd на 0,4 гб", "ssd 100000 тб", "ssd до 99999999 рублей", "ssd гарантия 999 лет",
+                                  "ssd за 999999999 дней", "ssd гарантия от 11 лет"])
+def test_out_of_range_values_do_not_crash_server(client, text):
+    # Найдено hypothesis: значения вне диапазона схемы давали 500 на POST /api/tasks.
+    assert client.post("/api/tasks", json={"text": text}).status_code == 200
+
+
+def test_out_of_range_condition_is_kept_strict():
+    # Условие не теряется: «гарантия от 11 лет» не превращается в «любая гарантия» и не урезается до 10 лет.
+    assert parse("ssd гарантия от 11 лет", MON).min_warranty_months == 132
+    assert parse("ssd до 99999999 рублей", MON).max_total_rub == 10_000_000  # верхняя граница бюджета — строже, а не мягче
+    assert parse("ssd за 999999999 дней", MON).deliver_by == MON + timedelta(days=366)
+    assert parse("SSD 0 ТБ", MON).capacity_gb == 1  # такого товара нет — проверка объёма никого не пропустит

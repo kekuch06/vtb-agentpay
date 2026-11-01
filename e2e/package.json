@@ -3,9 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "smoke": "node smoke.mjs"
+    "smoke": "node smoke.mjs",
+    "test": "playwright test",
+    "lighthouse": "node lighthouse.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.63.0",
+    "lighthouse": "13.5.0",
     "playwright": "1.63.0"
   }
 }

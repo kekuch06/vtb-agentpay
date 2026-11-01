@@ -62,6 +62,12 @@ def test_api_docs_do_not_load_cdn_by_default(client):
     assert client.get("/docs").status_code == 404 or "cdn" not in client.get("/docs").text
 
 
+def test_api_schema_hidden_without_docs(client):
+    # Было: /openapi.json отдавался при выключенной документации — готовая карта API.
+    r = client.get("/openapi.json")
+    assert "openapi" not in r.text
+
+
 def test_llm_error_does_not_leak_internal_address(client, monkeypatch):
     import httpx
 
@@ -77,3 +83,56 @@ def test_llm_error_does_not_leak_internal_address(client, monkeypatch):
     t = client.post("/api/tasks", json={"text": "SSD Samsung 2 ТБ"}).json()
     assert t["parser"] == "rules"
     assert "vllm.internal" not in str(t)
+
+
+def test_static_is_gzipped_but_api_is_not(client, dist):
+    (dist / "assets" / "big.js").write_text("console.log(1);" * 500, encoding="utf-8")
+    r = client.get("/assets/big.js", headers={"Accept-Encoding": "gzip"})
+    assert r.headers.get("content-encoding") == "gzip"
+    t = client.post("/api/tasks", json={"text": "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"},
+                    headers={"Accept-Encoding": "gzip"})
+    assert len(t.content) > 1024 and "content-encoding" not in t.headers  # ответы API не сжимаются (BREACH)
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+def test_oversized_api_body_is_rejected(client, chunked):
+    # Было: тело 30 МБ читалось и разбиралось целиком (без nginx, при make run). Самое длинное законное тело —
+    # поручение до 500 символов, поэтому всё больше 64 КБ — 413, в том числе без Content-Length (передача по частям).
+    big = ('{"text": "' + "x" * 200_000 + '"}').encode()
+    if chunked:
+        r = client.post("/api/tasks", content=iter([big[i:i + 8192] for i in range(0, len(big), 8192)]),
+                        headers={"content-type": "application/json"})
+    else:
+        r = client.post("/api/tasks", content=big, headers={"content-type": "application/json"})
+    assert r.status_code == 413
+    assert client.post("/api/tasks", json={"text": "SSD Samsung 2 ТБ"}).status_code == 200
+
+
+def test_short_secret_key_stops_startup(tmp_path):
+    # Было: с коротким AGENTPAY_SECRET_KEY сервер стартовал и отвечал 500 на каждый запрос. Ошибка конфигурации должна
+    # останавливать запуск и называть переменную.
+    import os
+    import subprocess
+    import sys
+    env = {**os.environ, "AGENTPAY_SECRET_KEY": "short", "AGENTPAY_DATABASE_PATH": str(tmp_path / "db.sqlite3")}
+    r = subprocess.run([sys.executable, "-c", "import app.main"], env=env, capture_output=True, text=True,
+                       cwd=os.path.dirname(os.path.dirname(__file__)))
+    assert r.returncode != 0 and "AGENTPAY_SECRET_KEY" in r.stderr
+
+
+@pytest.mark.parametrize("method,path,body", [
+    ("GET", "/api/audit?task_id=%00", None),
+    ("GET", "/api/tasks/task_%00", None),
+    ("GET", "/api/orders/ord_%00", None),
+    ("POST", "/api/orders/ord_%00/checkout", None),
+    ("POST", "/api/tasks", {"text": "SSD \u0000 Samsung"}),
+    ("POST", "/api/orders", {"task_id": "task_\u0000", "offer_id": "techmart:TM-1001"}),
+    ("POST", "/api/orders/ord_1/confirm", {"challenge_id": "ch_\u0000", "code": "123456"}),
+    ("POST", "/api/sandbox/scenario", {"name": "price_spike", "offer_id": "techmart:\u0000"}),
+    ("POST", "/api/settings/confirm", {"request_id": "lim_\u0000", "code": "123456"}),
+])
+def test_nul_byte_is_rejected_not_500(method, path, body):
+    # Найдено schemathesis на PostgreSQL: текст в PostgreSQL не может содержать NUL, и такой параметр давал 500.
+    from fastapi.testclient import TestClient
+    r = TestClient(main.app, raise_server_exceptions=False).request(method, path, json=body)
+    assert r.status_code == 422, r.text

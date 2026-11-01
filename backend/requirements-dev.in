@@ -2,4 +2,9 @@
 #   uv pip compile requirements-dev.in --universal --python-version 3.12 --generate-hashes -o requirements-dev.txt
 -c requirements.txt
 pytest==9.2.0
+# TestClient Starlette: с httpx он устарел и выдаёт DeprecationWarning, с httpx2 — штатно
+httpx2==2.13.1
 ruff==0.17.3
+# Свойства и фаззинг: hypothesis — разбор поручений, деньги, Verifier; schemathesis — API по OpenAPI (ни одного 500)
+hypothesis==6.170.1
+schemathesis==4.31.1

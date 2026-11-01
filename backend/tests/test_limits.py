@@ -32,3 +32,15 @@ def test_same_moscow_day_counts(client, monkeypatch):
     # 00:30 МСК и 03:30 МСК 2 ноября — один банковский день, хотя даты UTC разные
     _earlier_payment(client, datetime(2026, 11, 1, 21, 30, tzinfo=timezone.utc), 90_000)
     assert not _daily_rule(client, monkeypatch, datetime(2026, 11, 2, 0, 30, tzinfo=timezone.utc))["passed"]
+
+
+def test_settings_show_spent_today(client):
+    from conftest import code_for
+    assert client.get("/api/settings").json()["spent_today_kop"] == 0
+    t = client.post("/api/tasks", json={"text": MAIN}).json()
+    o = client.post("/api/orders", json={"task_id": t["task_id"], "offer_id": t["recommended_offer_id"]}).json()["order"]
+    ch = client.post(f"/api/orders/{o['order_id']}/checkout").json()["challenge"]
+    client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": code_for(client, ch)})
+    spent = client.get("/api/settings").json()["spent_today_kop"]
+    assert spent == o["amount_kop"] and isinstance(spent, int)  # PostgreSQL отдаёт SUM как numeric: не 1479000.0
+    assert client.put("/api/settings", json={"per_operation_limit_rub": 20_000}).json()["spent_today_kop"] == o["amount_kop"]

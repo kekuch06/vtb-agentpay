@@ -11,6 +11,7 @@ CATEGORIES = [
     ("ssd", r"\bssd\b|ссд|твердотельн|накопител"),
     ("hdd", r"\bhdd\b|жёстк|жестк|винчестер"),
     ("ram", r"оперативк|оперативн|\bозу\b|\bram\b|ddr\d"),
+    ("gpu", r"видеокарт|\bgpu\b|\brtx\b|geforce|radeon"),
     ("monitor", r"монитор"),
     ("headphones", r"наушник"),
 ]
@@ -85,7 +86,7 @@ def parse_deadline(t: str, today: date) -> date | None:
         return today + timedelta(days=1)
     m = re.search(r"(?:за|в течение|в течении)\s*(\d+)\s*(?:дн|день|дня)", t)
     if m:
-        return today + timedelta(days=int(m.group(1)))
+        return today + timedelta(days=min(int(m.group(1)), MAX_DEADLINE.days))  # «за 10¹⁰ дней» не переполняет дату
     m = re.search(r"до\s+(\d{1,2})\.(\d{1,2})", t)
     if m:
         return _next_date(int(m.group(1)), int(m.group(2)), today)
@@ -122,6 +123,23 @@ def parse_capacity(t: str) -> int | None:
     return int(round(v * 1000)) if m.group(2).startswith(("т", "t")) else int(v)
 
 
+MAX_DEADLINE = timedelta(days=366)
+
+
+def _bounded(c: dict, today: date) -> dict:
+    """Значение вне диапазона схемы — не повод для ошибки сервера и не повод потерять условие: оно приводится к границе
+    так, чтобы проверка стала строже, а не мягче. Бюджет выше 10 млн ₽ — до 10 млн, срок дальше года — год, объём
+    0 ГБ — 1 ГБ (такого товара нет, проверка объёма никого не пропустит), гарантия свыше 100 лет — 100 лет (таких нет)."""
+    f = Constraints.model_fields
+    for name in ("capacity_gb", "max_total_rub", "min_warranty_months"):
+        v = c[name]
+        if v is not None:
+            lo = next(m.ge for m in f[name].metadata if hasattr(m, "ge"))
+            hi = next(m.le for m in f[name].metadata if hasattr(m, "le"))
+            c[name] = min(max(v, lo), hi)
+    return c
+
+
 def parse(text: str, today: date) -> Constraints:
     t = text.lower().replace("ё", "е").replace("  ", " ")
     for alias, canon in ALIASES.items():
@@ -136,7 +154,7 @@ def parse(text: str, today: date) -> Constraints:
         category = MODEL_CATEGORY[keywords[0]]
     if category == "other" and brand == "Sony":
         category = "headphones"
-    return Constraints(
+    return Constraints(**_bounded(dict(
         category=category,
         brand=brand,
         capacity_gb=parse_capacity(t) if category in ("ssd", "hdd", "ram", "other") else None,
@@ -144,4 +162,4 @@ def parse(text: str, today: date) -> Constraints:
         deliver_by=parse_deadline(t, today),
         min_warranty_months=parse_warranty(t),
         keywords=keywords,
-    )
+    ), today))

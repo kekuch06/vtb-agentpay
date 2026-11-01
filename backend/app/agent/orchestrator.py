@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 
 from .. import audit, catalogs
 from ..models import Constraints, Task, TraceStep
-from ..trust.verifier import CATEGORY_RU, _gb, _money, _rub, check_offer
+from ..trust.verifier import CATEGORY_RU, check_offer, gb, money, rub
 from . import grounding, llm, rules
 
 
@@ -49,9 +49,9 @@ def describe(c: Constraints) -> str:
     if c.keywords:
         parts.append(" ".join(c.keywords))
     if c.capacity_gb:
-        parts.append(_gb(c.capacity_gb))
+        parts.append(gb(c.capacity_gb))
     if c.max_total_rub:
-        parts.append(f"до {_rub(c.max_total_rub)}")
+        parts.append(f"до {rub(c.max_total_rub)}")
     if c.deliver_by:
         parts.append(f"доставка до {c.deliver_by:%d.%m}")
     if c.min_warranty_months:
@@ -70,10 +70,20 @@ def run(text: str, today: date | None = None, owner: str | None = None) -> Task:
     trace.append(TraceStep(step="Разбор поручения", zone="untrusted", detail=f"{describe(constraints)} · {note}", ms=_ms(t0)))
     audit.log("agent", "untrusted", "constraints.extracted", {"parser": parser, "constraints": constraints.model_dump(mode="json")}, task_id=task_id, owner=owner)
 
+    # Товар не назван — ни категории, ни бренда, ни модели: «любой товар» не подставляется. Иначе на «видеокарту RTX»
+    # или «что-нибудь до 10 тысяч» агент рекомендовал самый дешёвый товар каталога, например SSD.
+    if constraints.category == "other" and not constraints.brand and not constraints.keywords:
+        explanation = ("Не понял, какой товар нужен: в поручении нет категории, бренда или модели из подключённых каталогов. "
+                       "Уточните, например: «SSD Samsung 2 ТБ до 16 тысяч».")
+        trace.append(TraceStep(step="Рекомендация", zone="trusted", detail="товар не распознан, поиск по каталогам не выполнялся"))
+        audit.log("agent", "trusted", "recommendation.made", {"offer_id": None, "reason": "product_not_recognized"}, task_id=task_id, owner=owner)
+        return Task(task_id=task_id, text=text, created_at=datetime.now(timezone.utc), parser=parser, constraints=constraints,
+                    offers=[], recommended_offer_id=None, explanation=explanation, trace=trace)
+
     checked = []
     for merchant_id in catalogs.ADAPTERS:
         t0 = time.perf_counter()
-        offers, broken = catalogs.scan(merchant_id, today)
+        offers, broken = catalogs.scan(merchant_id, today, owner)
         relevant = [o for o in offers if constraints.category in ("other", o.category)]
         trace.append(TraceStep(step=f"Каталог «{catalogs.MERCHANTS[merchant_id]['name']}»", zone="untrusted",
                                detail=f"получено {len(offers)} карточек, по категории {len(relevant)}"
@@ -139,12 +149,12 @@ def _explain(c: Constraints, checked, passed, injected) -> str:
                 f"Чаще всего не проходят: {top}. Попробуйте ослабить условия.")
     b = passed[0].offer
     s = (f"Проверил {_offers(len(checked))} у {_sellers(merchants)}, условиям {'соответствует' if len(passed) == 1 else 'соответствуют'} {len(passed)}. "
-         f"Лучший вариант — {b.title} у продавца «{b.merchant_name}»: {_money(b.total_kop)} с доставкой, "
+         f"Лучший вариант — {b.title} у продавца «{b.merchant_name}»: {money(b.total_kop)} с доставкой, "
          f"привезут {b.delivery_date:%d.%m}, гарантия {b.warranty_months} мес.")
     if len(passed) > 1:
         diff = passed[1].offer.total_kop - b.total_kop
         if diff > 0:
-            s += f" Это на {_money(diff)} дешевле следующего подходящего варианта."
+            s += f" Это на {money(diff)} дешевле следующего подходящего варианта."
     if injected:
         s += f" Исключено подозрительных карточек: {len(injected)} — в карточке были инструкции для агента или чужие реквизиты."
     return s

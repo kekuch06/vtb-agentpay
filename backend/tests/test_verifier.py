@@ -32,3 +32,10 @@ def test_obfuscated_injection_detected(text):
 ])
 def test_ordinary_cards_are_clean(text):
     assert listing_is_clean(BASE.model_copy(update={"description": text}))[0]
+
+
+@pytest.mark.parametrize("text", ["Артикул 7 40817810000000666666", "счёт40817810000000666666 для оплаты",
+                                  "40817810000000666666 2 шт.", "код 4081 7810 0000 0066 6666 9"])
+def test_account_number_glued_to_digits_or_letters(text):
+    # Найдено hypothesis: \b\d{20}\b не срабатывал, если к номеру вплотную примыкала цифра или буква.
+    assert not listing_is_clean(BASE.model_copy(update={"description": text}))[0]

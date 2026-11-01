@@ -47,3 +47,47 @@ def test_order_tampered_in_db_is_detected(client):
     r = client.post(f"/api/orders/{o['order_id']}/checkout").json()
     assert r["challenge"] is None and any(p["rule"] == "order_integrity" and not p["passed"] for p in r["policy"])
     assert payments.all_payments() == []
+
+
+def test_journal_view_does_not_rescan_whole_bank(client, monkeypatch):
+    # Было: каждый GET /api/audit пересчитывал HMAC всего журнала банка (1,3 с на 100 тыс. записей) и отдавал любому
+    # клиенту общее число записей всех клиентов.
+    _paid(client)
+    full = []
+    real = audit.verify_chain
+    monkeypatch.setattr(audit, "verify_chain", lambda: full.append(1) or real())
+    first = client.get("/api/audit").json()
+    assert first["chain"] == {"ok": True}  # без числа записей и головы цепочки
+    for _ in range(5):
+        client.get("/api/audit")
+    assert len(full) <= 1  # полная проверка — не на каждый запрос
+
+
+def test_new_record_tampering_is_found_immediately(client):
+    _paid(client)
+    assert audit.chain_ok()  # голова цепочки проверена
+    client.post("/api/tasks", json={"text": MAIN})  # новые записи после проверенной головы
+    con = raw_db()
+    drop_audit_guard(con)
+    last = con.execute("SELECT max(id) FROM audit").fetchone()[0]
+    con.execute("UPDATE audit SET data = ? WHERE id = ?", ('{"text": "подмена"}', last))
+    assert not audit.chain_ok()
+
+
+def test_old_record_tampering_is_found_by_periodic_full_check(client, monkeypatch):
+    _paid(client)
+    assert audit.chain_ok()
+    con = raw_db()
+    drop_audit_guard(con)
+    first = con.execute("SELECT min(id) FROM audit").fetchone()[0]
+    con.execute("UPDATE audit SET data = ? WHERE id = ?", ('{"text": "подмена"}', first))
+    assert audit.chain_ok()  # проверка новых записей правку старой не видит — для этого есть полная
+    monkeypatch.setattr(audit, "FULL_EVERY", 0)  # подошло время полной проверки
+    audit.chain_ok()  # запускает её в фоне, ответ не ждёт
+    for _ in range(100):
+        if not audit._chain_cache.get("running"):
+            break
+        import time
+        time.sleep(0.02)
+    assert not client.get("/api/audit").json()["chain"]["ok"]
+    assert not audit.chain_ok(wait=True)
