@@ -41,5 +41,6 @@ def test_settings_show_spent_today(client):
     o = client.post("/api/orders", json={"task_id": t["task_id"], "offer_id": t["recommended_offer_id"]}).json()["order"]
     ch = client.post(f"/api/orders/{o['order_id']}/checkout").json()["challenge"]
     client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": code_for(client, ch)})
-    assert client.get("/api/settings").json()["spent_today_kop"] == o["amount_kop"]
+    spent = client.get("/api/settings").json()["spent_today_kop"]
+    assert spent == o["amount_kop"] and isinstance(spent, int)  # PostgreSQL отдаёт SUM как numeric: не 1479000.0
     assert client.put("/api/settings", json={"per_operation_limit_rub": 20_000}).json()["spent_today_kop"] == o["amount_kop"]

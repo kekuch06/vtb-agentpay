@@ -112,8 +112,9 @@ def payments_for_task(task_id: str) -> list[Payment]:
 
 
 def spent_on(owner: str, bank_day: date) -> int:
-    return db.query("SELECT COALESCE(SUM(amount_kop), 0) FROM payments WHERE owner = ? AND bank_day = ?",
-                    (owner, bank_day.isoformat()))[0][0]
+    # PostgreSQL возвращает SUM(BIGINT) как numeric (Decimal): в API он уходил дробным числом, а JSON-ответ падал.
+    return int(db.query("SELECT COALESCE(SUM(amount_kop), 0) FROM payments WHERE owner = ? AND bank_day = ?",
+                        (owner, bank_day.isoformat()))[0][0])
 
 
 def get_settings(owner: str) -> dict:
