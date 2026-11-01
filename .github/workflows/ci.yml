@@ -87,6 +87,8 @@ jobs:
         run: cd e2e && E2E_BASE_URL=http://localhost:8080 npm run smoke
       - name: Сценарии на телефоне и компьютере, атаки sandbox, доступность (axe)
         run: cd e2e && E2E_BASE_URL=http://localhost:8080 npx playwright test
+      - name: Lighthouse, мобильный профиль (Performance, Accessibility, Best Practices ≥ 90)
+        run: cd e2e && E2E_BASE_URL=http://localhost:8080 npm run lighthouse
       - name: Логи стенда
         if: failure()
         run: docker compose logs --no-color
@@ -97,3 +99,4 @@ jobs:
           path: |
             e2e/smoke-failure.png
             e2e/test-results/
+            e2e/lighthouse-report.html
