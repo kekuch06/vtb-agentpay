@@ -23,7 +23,7 @@ from app.agent import llm  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Constraints  # noqa: E402
 from app.trust import payments  # noqa: E402
-from app.trust.verifier import _money, check_offer  # noqa: E402
+from app.trust.verifier import check_offer, money  # noqa: E402
 
 TODAY = date.fromisoformat(SPEC["today"])
 FIELDS = ["category", "brand", "capacity_gb", "max_total_rub", "deliver_by", "min_warranty_months", "keywords"]
@@ -207,7 +207,7 @@ def run_attacks():
         with ThreadPoolExecutor(5) as ex:
             list(ex.map(lambda x: confirm(c, x[0], x[1], x[2]), orders))
         spent = sum(p.amount_kop for p in payments.all_payments() if p.order_id in {o["order_id"] for o, _, _ in orders})
-        return spent <= 40_000 * 100, f"транзакция под блокировкой (списано {_money(spent)} при лимите 40 000 ₽)"
+        return spent <= 40_000 * 100, f"транзакция под блокировкой (списано {money(spent)} при лимите 40 000 ₽)"
 
     def price_spike(c):
         task = new_task(c)

@@ -96,7 +96,7 @@ def test_catalog_price_to_kopecks_is_exact(rub):
     as_float = float(rub)
     kop = catalogs._kop(as_float)
     assert kop == int(rub * 100)  # 18487.5 → 1848750, без округления в рубли
-    assert "".join(verifier._money(kop).split()).replace(",", ".").removesuffix("₽") == (
+    assert "".join(verifier.money(kop).split()).replace(",", ".").removesuffix("₽") == (
         str(int(rub)) if kop % 100 == 0 else f"{rub:.2f}")
 
 

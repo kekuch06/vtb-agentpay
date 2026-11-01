@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from .. import audit, catalogs, db, keys, store
 from ..models import Challenge, DeviceMessage, Order, Payment, PolicyResult, Task
-from .verifier import _money, _rub, check_offer
+from .verifier import check_offer, money, rub
 
 ORDER_TTL = timedelta(minutes=15)
 CHALLENGE_TTL = timedelta(minutes=5)
@@ -100,7 +100,7 @@ def evaluate(owner: str, o: Order, task: Task, today: date) -> list[PolicyResult
     price_ok = fresh is not None and fresh.total_kop == o.amount_kop
     r.append(PolicyResult(rule="price_recheck", passed=price_ok,
                           detail="цена у продавца не изменилась" if price_ok
-                          else f"актуальная цена {_money(fresh.total_kop) if fresh else '—'} отличается от суммы заказа {_money(o.amount_kop)}"))
+                          else f"актуальная цена {money(fresh.total_kop) if fresh else '—'} отличается от суммы заказа {money(o.amount_kop)}"))
     stock_ok = fresh is not None and fresh.in_stock
     r.append(PolicyResult(rule="stock_recheck", passed=stock_ok, detail="товар в наличии" if stock_ok else "товара нет в наличии"))
     # Условия поручения проверяются заново по актуальной карточке: продавец мог снять гарантию, сдвинуть доставку
@@ -119,16 +119,16 @@ def evaluate(owner: str, o: Order, task: Task, today: date) -> list[PolicyResult
     budget = task.constraints.max_total_rub
     budget_ok = budget is None or o.amount_kop <= budget * 100
     r.append(PolicyResult(rule="task_budget", passed=budget_ok,
-                          detail="сумма в пределах бюджета поручения" if budget_ok else f"сумма превышает бюджет поручения {_rub(budget)}"))
+                          detail="сумма в пределах бюджета поручения" if budget_ok else f"сумма превышает бюджет поручения {rub(budget)}"))
     limits = settings_for(owner)
     limit = limits["per_operation_limit_rub"]
     limit_ok = o.amount_kop <= limit * 100
     r.append(PolicyResult(rule="per_operation_limit", passed=limit_ok,
-                          detail=f"лимит на одну покупку {_rub(limit)}" + ("" if limit_ok else " превышен")))
+                          detail=f"лимит на одну покупку {rub(limit)}" + ("" if limit_ok else " превышен")))
     spent = store.spent_on(owner, bank_day(_now()))
     daily_ok = spent + o.amount_kop <= limits["daily_limit_rub"] * 100
     r.append(PolicyResult(rule="daily_limit", passed=daily_ok,
-                          detail=f"дневной лимит: потрачено {_money(spent)} из {_rub(limits['daily_limit_rub'])}" + ("" if daily_ok else ", превышен")))
+                          detail=f"дневной лимит: потрачено {money(spent)} из {rub(limits['daily_limit_rub'])}" + ("" if daily_ok else ", превышен")))
     r.append(PolicyResult(rule="not_expired", passed=_now() < o.expires_at,
                           detail="заказ действителен" if _now() < o.expires_at else "срок заказа истёк"))
     r.append(PolicyResult(rule="not_paid", passed=o.status != "paid",

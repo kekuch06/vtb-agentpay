@@ -83,11 +83,11 @@ def check_offer(offer: Offer, c: Constraints) -> CheckedOffer:
     if c.capacity_gb:
         cap = offer.capacity_gb
         ok = cap is not None and abs(cap - c.capacity_gb) <= c.capacity_gb * 0.1
-        checks.append(Check(name="Объём", passed=ok, detail=f"{_gb(cap)}, нужно: {_gb(c.capacity_gb)}"))
+        checks.append(Check(name="Объём", passed=ok, detail=f"{gb(cap)}, нужно: {gb(c.capacity_gb)}"))
     if c.max_total_rub:
         checks.append(Check(
             name="Бюджет", passed=offer.total_kop <= c.max_total_rub * 100,
-            detail=f"{_money(offer.total_kop)} с доставкой, лимит {_rub(c.max_total_rub)}",
+            detail=f"{money(offer.total_kop)} с доставкой, лимит {rub(c.max_total_rub)}",
         ))
     if c.deliver_by:
         checks.append(Check(
@@ -106,17 +106,17 @@ def check_offer(offer: Offer, c: Constraints) -> CheckedOffer:
     return CheckedOffer(offer=offer, checks=checks, passed=passed, score=offer.total_kop if passed else None)
 
 
-def _rub(v: int) -> str:
+def rub(v: int) -> str:
     return f"{v:,}".replace(",", " ") + " ₽"
 
 
-def _money(kop: int) -> str:
+def money(kop: int) -> str:
     """Сумма в копейках для человека: 1848750 → «18 487,50 ₽», 1479000 → «14 790 ₽»."""
-    rub, k = divmod(kop, 100)
-    return _rub(rub) if not k else f"{rub:,}".replace(",", " ") + f",{k:02d} ₽"
+    whole, k = divmod(kop, 100)
+    return rub(whole) if not k else f"{whole:,}".replace(",", " ") + f",{k:02d} ₽"
 
 
-def _gb(v: int | None) -> str:
+def gb(v: int | None) -> str:
     if v is None:
         return "не указан"
     return f"{v / 1000:g} ТБ" if v >= 1000 else f"{v} ГБ"

@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 
 from .. import audit, catalogs
 from ..models import Constraints, Task, TraceStep
-from ..trust.verifier import CATEGORY_RU, _gb, _money, _rub, check_offer
+from ..trust.verifier import CATEGORY_RU, check_offer, gb, money, rub
 from . import grounding, llm, rules
 
 
@@ -49,9 +49,9 @@ def describe(c: Constraints) -> str:
     if c.keywords:
         parts.append(" ".join(c.keywords))
     if c.capacity_gb:
-        parts.append(_gb(c.capacity_gb))
+        parts.append(gb(c.capacity_gb))
     if c.max_total_rub:
-        parts.append(f"до {_rub(c.max_total_rub)}")
+        parts.append(f"до {rub(c.max_total_rub)}")
     if c.deliver_by:
         parts.append(f"доставка до {c.deliver_by:%d.%m}")
     if c.min_warranty_months:
@@ -149,12 +149,12 @@ def _explain(c: Constraints, checked, passed, injected) -> str:
                 f"Чаще всего не проходят: {top}. Попробуйте ослабить условия.")
     b = passed[0].offer
     s = (f"Проверил {_offers(len(checked))} у {_sellers(merchants)}, условиям {'соответствует' if len(passed) == 1 else 'соответствуют'} {len(passed)}. "
-         f"Лучший вариант — {b.title} у продавца «{b.merchant_name}»: {_money(b.total_kop)} с доставкой, "
+         f"Лучший вариант — {b.title} у продавца «{b.merchant_name}»: {money(b.total_kop)} с доставкой, "
          f"привезут {b.delivery_date:%d.%m}, гарантия {b.warranty_months} мес.")
     if len(passed) > 1:
         diff = passed[1].offer.total_kop - b.total_kop
         if diff > 0:
-            s += f" Это на {_money(diff)} дешевле следующего подходящего варианта."
+            s += f" Это на {money(diff)} дешевле следующего подходящего варианта."
     if injected:
         s += f" Исключено подозрительных карточек: {len(injected)} — в карточке были инструкции для агента или чужие реквизиты."
     return s
