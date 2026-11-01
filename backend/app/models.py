@@ -14,10 +14,11 @@ class Constraints(BaseModel):
 
     category: Literal["ssd", "hdd", "ram", "gpu", "monitor", "headphones", "other"] = "other"
     brand: str | None = Field(default=None, max_length=40)
-    capacity_gb: int | None = Field(default=None, ge=1, le=100_000)
+    # Границы совпадают с карточкой товара (Offer): условие «гарантия от 11 лет» не должно быть невыразимым.
+    capacity_gb: int | None = Field(default=None, ge=1, le=1_000_000)
     max_total_rub: int | None = Field(default=None, ge=1, le=10_000_000)
     deliver_by: date | None = None
-    min_warranty_months: int | None = Field(default=None, ge=0, le=120)
+    min_warranty_months: int | None = Field(default=None, ge=0, le=1200)
     keywords: list[str] = Field(default_factory=list, max_length=8)
 
 
