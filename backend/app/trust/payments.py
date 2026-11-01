@@ -17,7 +17,9 @@ from .verifier import _rub, check_offer
 
 ORDER_TTL = timedelta(minutes=15)
 CHALLENGE_TTL = timedelta(minutes=5)
-MAX_CODE_ATTEMPTS = 3
+MAX_CODE_ATTEMPTS = 3  # неверных кодов на заказ, суммарно по всем выданным кодам
+MAX_CHALLENGES = 3  # запросов кода на заказ («не пришёл код»)
+TERMINAL = ("paid", "rejected", "expired")  # из этих статусов заказ не возвращается
 
 settings = {"per_operation_limit_rub": 30_000, "daily_limit_rub": 100_000}
 
@@ -113,18 +115,36 @@ def evaluate(o: Order, task: Task, today: date) -> list[PolicyResult]:
                           detail="заказ действителен" if _now() < o.expires_at else "срок заказа истёк"))
     r.append(PolicyResult(rule="not_paid", passed=o.status != "paid",
                           detail="заказ ещё не оплачен" if o.status != "paid" else "заказ уже оплачен (повтор)"))
+    closed = {"rejected": "заказ отклонён, оформите новый", "expired": "заказ истёк, оформите новый", "paid": "заказ закрыт"}
+    r.append(PolicyResult(rule="order_open", passed=o.status not in TERMINAL,
+                          detail="заказ открыт" if o.status not in TERMINAL else closed[o.status]))
     return r
+
+
+def _close(o: Order, results: list[PolicyResult]) -> None:
+    """Отказ Policy Engine закрывает заказ: «оживить» его повторным checkout нельзя."""
+    if o.status in TERMINAL:
+        return
+    failed = {x.rule for x in results if not x.passed}
+    o.status = "expired" if failed == {"not_expired"} else "rejected"
+
+
+def _reject_confirmation(o: Order, reason: str, message: str, **data) -> PermissionError:
+    audit.log("confirmation", "user", "confirmation.rejected", {"reason": reason, **data}, task_id=o.task_id, order_id=o.order_id)
+    return PermissionError(message)
 
 
 def checkout(o: Order, task: Task, today: date) -> tuple[list[PolicyResult], Challenge | None]:
     results = evaluate(o, task, today)
+    if not any(not x.passed for x in results) and o.challenges_issued >= MAX_CHALLENGES:
+        results.append(PolicyResult(rule="confirmation_limit", passed=False,
+                                    detail=f"код подтверждения запрошен {MAX_CHALLENGES} раза, заказ отклонён"))
     failed = [x for x in results if not x.passed]
     audit.log("policy-engine", "trusted", "policy.evaluated", {
         "passed": not failed, "failed_rules": [x.rule for x in failed],
     }, task_id=o.task_id, order_id=o.order_id)
     if failed:
-        if o.status != "paid":
-            o.status = "rejected"
+        _close(o, results)
         return results, None
     ch = Challenge(
         challenge_id="ch_" + uuid.uuid4().hex[:10], order_id=o.order_id, amount_rub=o.amount_rub,
@@ -134,10 +154,12 @@ def checkout(o: Order, task: Task, today: date) -> tuple[list[PolicyResult], Cha
     for e in challenges.values():  # предыдущие запросы подтверждения по этому заказу больше не действуют
         if e["challenge"].order_id == o.order_id:
             e["used"] = True
-    challenges[ch.challenge_id] = {"challenge": ch, "order_hash": o.order_hash, "attempts": 0, "used": False}
+    challenges[ch.challenge_id] = {"challenge": ch, "order_hash": o.order_hash, "used": False}
+    o.challenges_issued += 1
     o.status = "awaiting_confirmation"
     audit.log("confirmation", "user", "confirmation.requested", {
         "challenge_id": ch.challenge_id, "amount_rub": ch.amount_rub, "payee_account": ch.payee_account,
+        "issued": o.challenges_issued,
     }, task_id=o.task_id, order_id=o.order_id)
     return results, ch
 
@@ -145,25 +167,26 @@ def checkout(o: Order, task: Task, today: date) -> tuple[list[PolicyResult], Cha
 def confirm(o: Order, task: Task, challenge_id: str, code: str, today: date) -> Payment:
     entry = challenges.get(challenge_id)
     if entry is None or entry["challenge"].order_id != o.order_id:
-        audit.log("confirmation", "user", "confirmation.rejected", {"reason": "unknown_challenge"}, task_id=o.task_id, order_id=o.order_id)
-        raise PermissionError("подтверждение не найдено для этого заказа")
+        raise _reject_confirmation(o, "unknown_challenge", "подтверждение не найдено для этого заказа")
     ch: Challenge = entry["challenge"]
     if entry["used"]:
-        audit.log("confirmation", "user", "confirmation.rejected", {"reason": "replay"}, task_id=o.task_id, order_id=o.order_id)
-        raise PermissionError("подтверждение уже использовано")
+        raise _reject_confirmation(o, "replay", "подтверждение уже использовано")
+    if o.status != "awaiting_confirmation" or o.code_attempts >= MAX_CODE_ATTEMPTS:
+        raise _reject_confirmation(o, "order_closed", "заказ закрыт, оформите новый")
     if _now() >= ch.expires_at:
-        raise PermissionError("срок подтверждения истёк")
-    if entry["order_hash"] != o.order_hash:
-        raise PermissionError("заказ изменился после запроса подтверждения")
-    entry["attempts"] += 1
+        entry["used"] = True
+        raise _reject_confirmation(o, "expired", "срок подтверждения истёк, запросите новый код")
+    if entry["order_hash"] != order_hash(o):
+        entry["used"] = True
+        raise _reject_confirmation(o, "order_changed", "заказ изменился после запроса подтверждения")
     if not hmac.compare_digest(code, ch.sandbox_code):
-        audit.log("confirmation", "user", "confirmation.rejected", {"reason": "wrong_code", "attempt": entry["attempts"]},
-                  task_id=o.task_id, order_id=o.order_id)
-        if entry["attempts"] >= MAX_CODE_ATTEMPTS:
+        o.code_attempts += 1
+        left = MAX_CODE_ATTEMPTS - o.code_attempts
+        if left <= 0:
             entry["used"] = True
             o.status = "rejected"
-            raise PermissionError("превышено число попыток, заказ отклонён")
-        raise PermissionError("неверный код подтверждения")
+            raise _reject_confirmation(o, "wrong_code", "превышено число попыток, заказ отклонён", attempt=o.code_attempts)
+        raise _reject_confirmation(o, "wrong_code", f"неверный код подтверждения, осталось попыток: {left}", attempt=o.code_attempts)
     entry["used"] = True
     audit.log("user", "user", "confirmation.approved", {"challenge_id": challenge_id}, task_id=o.task_id, order_id=o.order_id)
 
@@ -171,7 +194,7 @@ def confirm(o: Order, task: Task, challenge_id: str, code: str, today: date) -> 
     results = evaluate(o, task, today)
     failed = [x for x in results if not x.passed]
     if failed:
-        o.status = "rejected"
+        _close(o, results)
         audit.log("policy-engine", "trusted", "policy.blocked_at_payment", {"failed_rules": [x.rule for x in failed]},
                   task_id=o.task_id, order_id=o.order_id)
         raise PolicyViolation(results)

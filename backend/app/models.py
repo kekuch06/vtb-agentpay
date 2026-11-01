@@ -98,6 +98,9 @@ class Order(BaseModel):
     created_at: datetime
     expires_at: datetime
     order_hash: str
+    # Счётчики на заказ, а не на код: новый код не обнуляет число неверных попыток.
+    code_attempts: int = 0
+    challenges_issued: int = 0
 
 
 class PolicyResult(BaseModel):

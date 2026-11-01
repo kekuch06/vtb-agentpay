@@ -30,6 +30,8 @@ const RULE_RU: Record<string, string> = {
   daily_limit: "Дневной лимит",
   not_expired: "Срок заказа",
   not_paid: "Защита от повтора",
+  order_open: "Статус заказа",
+  confirmation_limit: "Лимит запросов кода",
 };
 
 const CATEGORY_RU: Record<string, string> = {
@@ -148,7 +150,12 @@ export default function App() {
         return null;
       }
       const msg = errText(e);
-      if (msg.includes("отклонён") || msg.includes("использовано")) {
+      if (msg.includes("истёк")) {
+        setChallenge(null); setShowConfirm(false);
+        push({ role: "event", tone: "warn", text: `${msg}.` });
+        return null;
+      }
+      if (msg.includes("отклонён") || msg.includes("использовано") || msg.includes("закрыт") || msg.includes("изменился")) {
         setChallenge(null);
         setOrder({ ...order, status: "rejected" });
         push({ role: "event", tone: "bad", text: msg });
@@ -362,6 +369,7 @@ function OrderView({ order, policy, payment, onCheckout, busy, onOpenConfirm }: 
       )}
       {order.status === "draft" && <button className="primary" disabled={busy} onClick={onCheckout}>Проверить и перейти к оплате</button>}
       {order.status === "awaiting_confirmation" && onOpenConfirm && <button className="primary" onClick={onOpenConfirm}>Ввести код подтверждения</button>}
+      {order.status === "awaiting_confirmation" && !onOpenConfirm && <button className="secondary" disabled={busy} onClick={onCheckout}>Запросить новый код</button>}
       {order.status === "rejected" && <p className="note">Заказ отклонён. Отправьте поручение заново, чтобы агент собрал актуальные предложения.</p>}
     </div>
   );
