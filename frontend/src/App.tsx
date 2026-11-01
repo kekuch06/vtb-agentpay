@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  api, ApiError, ddmm, rub,
-  type AuditEntry, type Challenge, type CheckedOffer, type Health, type Order, type Payment, type PolicyResult, type Task,
+  api, ApiError, ddmm, money, rub,
+  type AuditEntry, type Challenge, type CheckedOffer, type DeviceMessage, type Health, type Order, type Payment, type PolicyResult, type Task,
 } from "./api";
 
 type Msg =
@@ -24,11 +24,15 @@ const RULE_RU: Record<string, string> = {
   payee_match: "Получатель платежа",
   price_recheck: "Перепроверка цены",
   stock_recheck: "Перепроверка наличия",
+  offer_recheck: "Перепроверка условий",
+  task_open: "Одна покупка на поручение",
   task_budget: "Бюджет поручения",
   per_operation_limit: "Лимит на операцию",
   daily_limit: "Дневной лимит",
   not_expired: "Срок заказа",
   not_paid: "Защита от повтора",
+  order_open: "Статус заказа",
+  confirmation_limit: "Лимит запросов кода",
 };
 
 const CATEGORY_RU: Record<string, string> = {
@@ -46,6 +50,7 @@ export default function App() {
   const [order, setOrder] = useState<Order | null>(null);
   const [policy, setPolicy] = useState<PolicyResult[] | null>(null);
   const [challenge, setChallenge] = useState<Challenge | null>(null);
+  const [deviceMsg, setDeviceMsg] = useState<DeviceMessage | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [payment, setPayment] = useState<Payment | null>(null);
   const [tab, setTab] = useState<Tab>("offers");
@@ -100,7 +105,7 @@ export default function App() {
     try {
       const r = await api.order(task.task_id, offerId);
       setOrder(r.order); setPolicy(r.policy); setChallenge(null); setPayment(null);
-      push({ role: "event", tone: "ok", text: `Создан заказ ${r.order.order_id} на ${rub(r.order.amount_rub)}. Цена запрошена у продавца повторно, реквизиты взяты из реестра банка.` });
+      push({ role: "event", tone: "ok", text: `Создан заказ ${r.order.order_id} на ${money(r.order.amount_kop)}. Цена запрошена у продавца повторно, реквизиты взяты из реестра банка.` });
       setTab("order");
     } catch (e) {
       push({ role: "event", tone: "bad", text: errText(e) });
@@ -117,7 +122,10 @@ export default function App() {
       setOrder(r.order); setPolicy(r.policy);
       const failed = r.policy.filter((p) => !p.passed);
       if (r.challenge) {
+        const id = r.challenge.challenge_id;
         setChallenge(r.challenge);
+        // Код приходит отдельным каналом — sandbox-имитацией push-уведомления на устройство клиента.
+        setDeviceMsg((await api.device().catch(() => ({ messages: [] }))).messages.find((m) => m.challenge_id === id) ?? null);
         setShowConfirm(true);
         push({ role: "event", tone: "ok", text: `Policy Engine: все ${r.policy.length} правил пройдены. Нужно ваше подтверждение.` });
       } else {
@@ -135,7 +143,7 @@ export default function App() {
     try {
       const r = await api.confirm(order.order_id, challenge.challenge_id, code);
       setOrder(r.order); setPayment(r.payment); setChallenge(null);
-      push({ role: "event", tone: "ok", text: `Оплачено в sandbox: ${rub(r.payment.amount_rub)} → ${r.order.merchant_name}. Платёж ${r.payment.payment_id}.` });
+      push({ role: "event", tone: "ok", text: `Оплачено в sandbox: ${money(r.payment.amount_kop)} → ${r.order.merchant_name}. Платёж ${r.payment.payment_id}.` });
       return null;
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
@@ -147,7 +155,12 @@ export default function App() {
         return null;
       }
       const msg = errText(e);
-      if (msg.includes("отклонён") || msg.includes("использовано")) {
+      if (msg.includes("истёк")) {
+        setChallenge(null); setShowConfirm(false);
+        push({ role: "event", tone: "warn", text: `${msg}.` });
+        return null;
+      }
+      if (msg.includes("отклонён") || msg.includes("использовано") || msg.includes("закрыт") || msg.includes("изменился")) {
         setChallenge(null);
         setOrder({ ...order, status: "rejected" });
         push({ role: "event", tone: "bad", text: msg });
@@ -231,7 +244,7 @@ export default function App() {
         </section>
       </main>
 
-      {challenge && showConfirm && order && <ConfirmModal ch={challenge} order={order} onConfirm={confirm} onCancel={() => setShowConfirm(false)} />}
+      {challenge && showConfirm && order && <ConfirmModal ch={challenge} push={deviceMsg} order={order} onConfirm={confirm} onCancel={() => setShowConfirm(false)} />}
     </div>
   );
 }
@@ -304,8 +317,8 @@ function OfferCard({ o, best, onOrder, busy }: { o: CheckedOffer; best: boolean;
           <small>{f.merchant_name} · арт. {f.sku}</small>
         </div>
         <div className="price">
-          <b>{rub(f.total_rub)}</b>
-          <small>{f.delivery_rub ? `вкл. доставку ${rub(f.delivery_rub)}` : "доставка бесплатно"}</small>
+          <b>{money(f.total_kop)}</b>
+          <small>{f.delivery_kop ? `вкл. доставку ${money(f.delivery_kop)}` : "доставка бесплатно"}</small>
         </div>
       </div>
       <div className="facts">
@@ -341,7 +354,7 @@ function OrderView({ order, policy, payment, onCheckout, busy, onOpenConfirm }: 
         <div className="row"><span>Товар</span><b>{order.title}</b></div>
         <div className="row"><span>Продавец</span><b>{order.merchant_name}</b></div>
         <div className="row"><span>Счёт получателя</span><code>{order.payee_account}</code></div>
-        <div className="row big"><span>Сумма</span><b>{rub(order.amount_rub)}</b></div>
+        <div className="row big"><span>Сумма</span><b>{money(order.amount_kop)}</b></div>
       </div>
       {payment && (
         <div className="receipt">
@@ -361,13 +374,14 @@ function OrderView({ order, policy, payment, onCheckout, busy, onOpenConfirm }: 
       )}
       {order.status === "draft" && <button className="primary" disabled={busy} onClick={onCheckout}>Проверить и перейти к оплате</button>}
       {order.status === "awaiting_confirmation" && onOpenConfirm && <button className="primary" onClick={onOpenConfirm}>Ввести код подтверждения</button>}
+      {order.status === "awaiting_confirmation" && !onOpenConfirm && <button className="secondary" disabled={busy} onClick={onCheckout}>Запросить новый код</button>}
       {order.status === "rejected" && <p className="note">Заказ отклонён. Отправьте поручение заново, чтобы агент собрал актуальные предложения.</p>}
     </div>
   );
 }
 
-function ConfirmModal({ ch, order, onConfirm, onCancel }: {
-  ch: Challenge; order: Order; onConfirm: (code: string) => Promise<string | null>; onCancel: () => void;
+function ConfirmModal({ ch, push, order, onConfirm, onCancel }: {
+  ch: Challenge; push: DeviceMessage | null; order: Order; onConfirm: (code: string) => Promise<string | null>; onCancel: () => void;
 }) {
   const [code, setCode] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -381,11 +395,11 @@ function ConfirmModal({ ch, order, onConfirm, onCancel }: {
     <div className="overlay">
       <div className="modal" role="dialog" aria-modal="true">
         <div className="push">
-          <small>Push-уведомление · sandbox</small>
-          <div>Код подтверждения: <b>{ch.sandbox_code}</b></div>
+          <small>Push-уведомление на устройство · sandbox</small>
+          <div>{push ? <>Код подтверждения: <b>{push.code}</b></> : "Уведомление не пришло — запросите код повторно"}</div>
         </div>
         <h2>Подтвердите оплату</h2>
-        <div className="amount">{rub(ch.amount_rub)}</div>
+        <div className="amount">{money(ch.amount_kop)}</div>
         <div className="row"><span>Получатель</span><b>{ch.merchant_name}</b></div>
         <div className="row"><span>Счёт</span><code>{ch.payee_account}</code></div>
         <div className="row"><span>Назначение</span><b>{order.title}</b></div>

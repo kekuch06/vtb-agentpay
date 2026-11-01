@@ -1,0 +1,55 @@
+# VTB AgentPay в закрытом контуре: интерфейс, API, PostgreSQL (журнал и платёжное состояние), локальная LLM.
+# Секреты не хранятся в репозитории: скопируйте .env.example в .env и заполните. Запуск: make up → http://localhost:8080
+name: agentpay
+
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_DB: agentpay
+      POSTGRES_USER: agentpay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentpay -d agentpay"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.40.9
+    volumes:
+      - ollama:/root/.ollama  # модели; в закрытом контуре загружаются заранее (см. README)
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      AGENTPAY_DATABASE_URL: postgresql://agentpay:${POSTGRES_PASSWORD}@postgres:5432/agentpay
+      AGENTPAY_SECRET_KEY: ${AGENTPAY_SECRET_KEY:?задайте AGENTPAY_SECRET_KEY в .env}
+      AGENTPAY_OLLAMA_URL: http://ollama:11434
+      AGENTPAY_LLM: ${AGENTPAY_LLM:-auto}
+      AGENTPAY_LLM_MODEL: ${AGENTPAY_LLM_MODEL:-qwen2.5:3b}
+      AGENTPAY_TODAY: ${AGENTPAY_TODAY:-}
+      AGENTPAY_COOKIE_SECURE: ${AGENTPAY_COOKIE_SECURE:-0}
+    # Ollama не в depends_on: без модели backend разбирает поручения правилами и переключается на модель,
+    # как только она станет доступна. Поэтому стенд поднимается и без 8-гигабайтного образа (так он идёт в CI).
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${AGENTPAY_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  ollama:

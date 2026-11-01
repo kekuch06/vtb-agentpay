@@ -1,7 +1,7 @@
 export type Check = { name: string; passed: boolean; detail: string };
 export type Offer = {
   offer_id: string; merchant_id: string; merchant_name: string; sku: string; title: string; brand: string;
-  category: string; capacity_gb: number | null; price_rub: number; delivery_rub: number; total_rub: number;
+  category: string; capacity_gb: number | null; price_kop: number; delivery_kop: number; total_kop: number;
   delivery_date: string; warranty_months: number; in_stock: boolean; description: string;
 };
 export type CheckedOffer = { offer: Offer; checks: Check[]; passed: boolean; score: number | null };
@@ -16,14 +16,18 @@ export type Task = {
 };
 export type Order = {
   order_id: string; task_id: string; offer_id: string; merchant_id: string; merchant_name: string;
-  payee_account: string; sku: string; title: string; amount_rub: number; status: string; expires_at: string;
+  payee_account: string; sku: string; title: string; amount_kop: number; status: string; expires_at: string;
 };
 export type PolicyResult = { rule: string; passed: boolean; detail: string };
 export type Challenge = {
-  challenge_id: string; order_id: string; amount_rub: number; payee_account: string; merchant_name: string;
-  expires_at: string; sandbox_code: string;
+  challenge_id: string; order_id: string; amount_kop: number; payee_account: string; merchant_name: string;
+  expires_at: string;
 };
-export type Payment = { payment_id: string; order_id: string; amount_rub: number; payee_account: string; created_at: string };
+// Push на устройство клиента. Код не приходит в ответе checkout — только этим каналом.
+export type DeviceMessage = {
+  challenge_id: string; order_id: string; merchant_name: string; amount_kop: number; code: string; expires_at: string;
+};
+export type Payment = { payment_id: string; order_id: string; amount_kop: number; payee_account: string; created_at: string };
 export type AuditEntry = {
   id: number; ts: string; actor: string; zone: string; action: string; task_id: string | null;
   order_id: string | null; data: Record<string, unknown>; hash: string;
@@ -58,12 +62,16 @@ export const api = {
     req<{ order: Order; payment: Payment }>("POST", `/api/orders/${id}/confirm`, { challenge_id, code }),
   audit: (task_id?: string) =>
     req<{ entries: AuditEntry[]; chain: { ok: boolean; entries: number } }>(
-      "GET", task_id ? `/api/audit?task_id=${task_id}` : "/api/audit"),
+      "GET", task_id ? `/api/audit?task_id=${encodeURIComponent(task_id)}` : "/api/audit"),
   settings: () => req<{ per_operation_limit_rub: number; daily_limit_rub: number }>("GET", "/api/settings"),
   setLimit: (v: number) => req("PUT", "/api/settings", { per_operation_limit_rub: v }),
+  device: () => req<{ messages: DeviceMessage[] }>("GET", "/api/sandbox/device"),
   scenario: (name: string, extra: { offer_id?: string; order_id?: string } = {}) =>
     req<{ message: string }>("POST", "/api/sandbox/scenario", { name, ...extra }),
 };
 
 export const rub = (v: number) => v.toLocaleString("ru-RU") + " ₽";
+// Суммы заказа и платежа приходят в копейках: 1848750 → «18 487,50 ₽», 1479000 → «14 790 ₽».
+export const money = (kop: number) =>
+  (kop / 100).toLocaleString("ru-RU", { minimumFractionDigits: kop % 100 ? 2 : 0, maximumFractionDigits: 2 }) + " ₽";
 export const ddmm = (iso: string) => iso.slice(8, 10) + "." + iso.slice(5, 7);

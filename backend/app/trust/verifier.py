@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from ..models import Check, CheckedOffer, Constraints, Offer
 
@@ -9,14 +10,28 @@ CATEGORY_RU = {"ssd": "SSD", "hdd": "HDD", "ram": "оперативная пам
 
 # Признаки попытки управлять агентом через карточку товара или подменить реквизиты.
 INJECTION_PATTERNS = [
-    r"игнорируй", r"ignore (all |previous )", r"system\s*:", r"инструкци", r"подтверждение не требуется",
-    r"переведи", r"\b\d{20}\b", r"реквизит", r"\bassistant\s*:",
+    r"игнорируй", r"забудь", r"не учитывай", r"ignore (all |previous )", r"disregard", r"system\s*:", r"\bassistant\s*:",
+    r"(предыдущ|прежн|прошл|все|системн)\w*\s+(инструкц|указани)", r"инструкци\w*\s+(для\s+)?(агент|ассистент|модел|бот)",
+    r"подтверждение не требуется", r"переведи", r"\b\d{20}\b", r"реквизит",
 ]
+
+# Обфускация, которой проверку обходили бы без нормализации: невидимые символы внутри слова,
+# латиница вместо похожей кириллицы (и наоборот), разделители внутри номера счёта.
+INVISIBLE = dict.fromkeys(map(ord, "\u00ad\u200b\u200c\u200d\u200e\u200f\u2060\ufeff"), None)
+LAT_TO_CYR = str.maketrans("aeopcyxkmthb", "аеорсухкмтнв")
+CYR_TO_LAT = str.maketrans("аеорсухкмтнв", "aeopcyxkmthb")
+
+
+def _normalized(offer: Offer) -> tuple[str, str]:
+    t = unicodedata.normalize("NFKC", f"{offer.title} {offer.brand} {offer.sku} {offer.description}")
+    t = t.translate(INVISIBLE).lower().replace("ё", "е")
+    t = re.sub(r"(?<=\d)[\s\-\u2010-\u2015./_]+(?=\d)", "", t)  # «4081 7810 …», «40817-810-…» → один номер
+    return t.translate(LAT_TO_CYR), t.translate(CYR_TO_LAT)
 
 
 def listing_is_clean(offer: Offer) -> tuple[bool, str]:
-    text = f"{offer.title} {offer.description}".lower()
-    hits = [p for p in INJECTION_PATTERNS if re.search(p, text)]
+    variants = _normalized(offer)
+    hits = [p for p in INJECTION_PATTERNS if any(re.search(p, v) for v in variants)]
     if hits:
         return False, "в карточке товара найдены инструкции для агента или платёжные реквизиты — предложение исключено"
     return True, "посторонних инструкций и реквизитов нет"
@@ -48,8 +63,8 @@ def check_offer(offer: Offer, c: Constraints) -> CheckedOffer:
         checks.append(Check(name="Объём", passed=ok, detail=f"{_gb(cap)}, нужно: {_gb(c.capacity_gb)}"))
     if c.max_total_rub:
         checks.append(Check(
-            name="Бюджет", passed=offer.total_rub <= c.max_total_rub,
-            detail=f"{_rub(offer.total_rub)} с доставкой, лимит {_rub(c.max_total_rub)}",
+            name="Бюджет", passed=offer.total_kop <= c.max_total_rub * 100,
+            detail=f"{_money(offer.total_kop)} с доставкой, лимит {_rub(c.max_total_rub)}",
         ))
     if c.deliver_by:
         checks.append(Check(
@@ -65,11 +80,17 @@ def check_offer(offer: Offer, c: Constraints) -> CheckedOffer:
 
     passed = all(ch.passed for ch in checks)
     # Ранжирование по итоговой цене с доставкой; при равенстве оркестратор берёт более раннюю доставку.
-    return CheckedOffer(offer=offer, checks=checks, passed=passed, score=offer.total_rub if passed else None)
+    return CheckedOffer(offer=offer, checks=checks, passed=passed, score=offer.total_kop if passed else None)
 
 
 def _rub(v: int) -> str:
     return f"{v:,}".replace(",", " ") + " ₽"
+
+
+def _money(kop: int) -> str:
+    """Сумма в копейках для человека: 1848750 → «18 487,50 ₽», 1479000 → «14 790 ₽»."""
+    rub, k = divmod(kop, 100)
+    return _rub(rub) if not k else f"{rub:,}".replace(",", " ") + f",{k:02d} ₽"
 
 
 def _gb(v: int | None) -> str:

@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 
 from .. import audit, catalogs
 from ..models import Constraints, Task, TraceStep
-from ..trust.verifier import CATEGORY_RU, _gb, _rub, check_offer
+from ..trust.verifier import CATEGORY_RU, _gb, _money, _rub, check_offer
 from . import grounding, llm, rules
 
 
@@ -59,25 +59,27 @@ def describe(c: Constraints) -> str:
     return ", ".join(parts) or "условия не распознаны"
 
 
-def run(text: str, today: date | None = None) -> Task:
+def run(text: str, today: date | None = None, owner: str | None = None) -> Task:
     today = today or date.today()
     task_id = "task_" + uuid.uuid4().hex[:10]
     trace: list[TraceStep] = []
-    audit.log("user", "user", "task.created", {"text": text}, task_id=task_id)
+    audit.log("user", "user", "task.created", {"text": text}, task_id=task_id, owner=owner)
 
     t0 = time.perf_counter()
     constraints, parser, note = extract_constraints(text, today)
     trace.append(TraceStep(step="Разбор поручения", zone="untrusted", detail=f"{describe(constraints)} · {note}", ms=_ms(t0)))
-    audit.log("agent", "untrusted", "constraints.extracted", {"parser": parser, "constraints": constraints.model_dump(mode="json")}, task_id=task_id)
+    audit.log("agent", "untrusted", "constraints.extracted", {"parser": parser, "constraints": constraints.model_dump(mode="json")}, task_id=task_id, owner=owner)
 
     checked = []
     for merchant_id in catalogs.ADAPTERS:
         t0 = time.perf_counter()
-        offers = catalogs.search(merchant_id, today)
+        offers, broken = catalogs.scan(merchant_id, today)
         relevant = [o for o in offers if constraints.category in ("other", o.category)]
         trace.append(TraceStep(step=f"Каталог «{catalogs.MERCHANTS[merchant_id]['name']}»", zone="untrusted",
-                               detail=f"получено {len(offers)} карточек, по категории {len(relevant)}", ms=_ms(t0)))
-        audit.log("agent", "untrusted", "catalog.searched", {"merchant": merchant_id, "offers": len(offers), "relevant": len(relevant)}, task_id=task_id)
+                               detail=f"получено {len(offers)} карточек, по категории {len(relevant)}"
+                                      + (f", отброшено некорректных {broken}" if broken else ""), ms=_ms(t0)))
+        audit.log("agent", "untrusted", "catalog.searched", {"merchant": merchant_id, "offers": len(offers), "relevant": len(relevant),
+                                                             "broken": broken}, task_id=task_id, owner=owner)
         checked += [check_offer(o, constraints) for o in relevant]
 
     t0 = time.perf_counter()
@@ -90,16 +92,16 @@ def run(text: str, today: date | None = None) -> Task:
     audit.log("verifier", "trusted", "offers.verified", {
         "total": len(checked), "passed": [c.offer.offer_id for c in passed],
         "suspicious": [c.offer.offer_id for c in injected],
-    }, task_id=task_id)
+    }, task_id=task_id, owner=owner)
 
     best = passed[0] if passed else None
     explanation = _explain(constraints, checked, passed, injected)
     trace.append(TraceStep(step="Рекомендация", zone="trusted",
                            detail=f"{best.offer.title} · {best.offer.merchant_name}" if best else "подходящих предложений нет"))
-    audit.log("agent", "trusted", "recommendation.made", {"offer_id": best.offer.offer_id if best else None}, task_id=task_id)
+    audit.log("agent", "trusted", "recommendation.made", {"offer_id": best.offer.offer_id if best else None}, task_id=task_id, owner=owner)
 
     # Порядок для интерфейса: прошедшие по рейтингу, затем отклонённые.
-    ordered = passed + sorted(rejected, key=lambda c: c.offer.total_rub)
+    ordered = passed + sorted(rejected, key=lambda c: c.offer.total_kop)
     return Task(task_id=task_id, text=text, created_at=datetime.now(timezone.utc), parser=parser, constraints=constraints,
                 offers=ordered, recommended_offer_id=best.offer.offer_id if best else None, explanation=explanation, trace=trace)
 
@@ -137,12 +139,12 @@ def _explain(c: Constraints, checked, passed, injected) -> str:
                 f"Чаще всего не проходят: {top}. Попробуйте ослабить условия.")
     b = passed[0].offer
     s = (f"Проверил {_offers(len(checked))} у {_sellers(merchants)}, условиям {'соответствует' if len(passed) == 1 else 'соответствуют'} {len(passed)}. "
-         f"Лучший вариант — {b.title} у продавца «{b.merchant_name}»: {_rub(b.total_rub)} с доставкой, "
+         f"Лучший вариант — {b.title} у продавца «{b.merchant_name}»: {_money(b.total_kop)} с доставкой, "
          f"привезут {b.delivery_date:%d.%m}, гарантия {b.warranty_months} мес.")
     if len(passed) > 1:
-        diff = passed[1].offer.total_rub - b.total_rub
+        diff = passed[1].offer.total_kop - b.total_kop
         if diff > 0:
-            s += f" Это на {_rub(diff)} дешевле следующего подходящего варианта."
+            s += f" Это на {_money(diff)} дешевле следующего подходящего варианта."
     if injected:
         s += f" Исключено подозрительных карточек: {len(injected)} — в карточке были инструкции для агента или чужие реквизиты."
     return s
