@@ -9,7 +9,9 @@ from schemathesis.generation import GenerationMode
 
 from app.main import app
 
-schema = schemathesis.openapi.from_asgi("/openapi.json", app)
+# Схема берётся из приложения: по HTTP она отдаётся только с AGENTPAY_API_DOCS=1.
+schema = schemathesis.openapi.from_dict(app.openapi())
+schema.app = app
 SCALE = int(os.getenv("AGENTPAY_HYPOTHESIS_SCALE", "1"))
 schema.config.generation.update(modes=[GenerationMode.POSITIVE, GenerationMode.NEGATIVE])
 

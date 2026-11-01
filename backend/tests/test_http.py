@@ -62,6 +62,12 @@ def test_api_docs_do_not_load_cdn_by_default(client):
     assert client.get("/docs").status_code == 404 or "cdn" not in client.get("/docs").text
 
 
+def test_api_schema_hidden_without_docs(client):
+    # Было: /openapi.json отдавался при выключенной документации — готовая карта API.
+    r = client.get("/openapi.json")
+    assert "openapi" not in r.text
+
+
 def test_llm_error_does_not_leak_internal_address(client, monkeypatch):
     import httpx
 
@@ -100,3 +106,4 @@ def test_oversized_api_body_is_rejected(client, chunked):
         r = client.post("/api/tasks", content=big, headers={"content-type": "application/json"})
     assert r.status_code == 413
     assert client.post("/api/tasks", json={"text": "SSD Samsung 2 ТБ"}).status_code == 200
+

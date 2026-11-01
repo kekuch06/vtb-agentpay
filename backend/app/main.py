@@ -21,7 +21,9 @@ from .trust import payments
 
 # Swagger UI загружает скрипты с CDN — в закрытом контуре это внешний ресурс, поэтому по умолчанию выключен.
 API_DOCS = os.getenv("AGENTPAY_API_DOCS", "0") == "1"
-app = FastAPI(title="VTB AgentPay MVP", version="0.1.0", docs_url="/docs" if API_DOCS else None, redoc_url=None)
+# Схема API тоже только с документацией: в закрытом контуре это карта эндпоинтов для того, кто ищет, куда стучаться.
+app = FastAPI(title="VTB AgentPay MVP", version="0.1.0", docs_url="/docs" if API_DOCS else None, redoc_url=None,
+              openapi_url="/openapi.json" if API_DOCS else None)
 
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
