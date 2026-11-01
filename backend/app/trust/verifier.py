@@ -12,7 +12,7 @@ CATEGORY_RU = {"ssd": "SSD", "hdd": "HDD", "ram": "оперативная пам
 INJECTION_PATTERNS = [
     r"игнорируй", r"забудь", r"не учитывай", r"ignore (all |previous )", r"disregard", r"system\s*:", r"\bassistant\s*:",
     r"(предыдущ|прежн|прошл|все|системн)\w*\s+(инструкц|указани)", r"инструкци\w*\s+(для\s+)?(агент|ассистент|модел|бот)",
-    r"подтверждение не требуется", r"переведи", r"\b\d{20}\b", r"реквизит",
+    r"подтверждение не требуется", r"переведи", r"реквизит",
 ]
 
 # Обфускация, которой проверку обходили бы без нормализации: невидимые символы внутри слова,
@@ -22,17 +22,40 @@ LAT_TO_CYR = str.maketrans("aeopcyxkmthb", "аеорсухкмтнв")
 CYR_TO_LAT = str.maketrans("аеорсухкмтнв", "aeopcyxkmthb")
 
 
-def _normalized(offer: Offer) -> tuple[str, str]:
+SEP = r"[\s\-\u2010-\u2015./_]+"
+
+
+def _plain(offer: Offer) -> str:
     t = unicodedata.normalize("NFKC", f"{offer.title} {offer.brand} {offer.sku} {offer.description}")
-    t = t.translate(INVISIBLE).lower().replace("ё", "е")
-    t = re.sub(r"(?<=\d)[\s\-\u2010-\u2015./_]+(?=\d)", "", t)  # «4081 7810 …», «40817-810-…» → один номер
+    return t.translate(INVISIBLE).lower().replace("ё", "е")
+
+
+def _normalized(offer: Offer) -> tuple[str, str]:
+    t = re.sub(rf"(?<=\d){SEP}(?=\d)", "", _plain(offer))  # «4081 7810 …», «40817-810-…» → один номер
     return t.translate(LAT_TO_CYR), t.translate(CYR_TO_LAT)
+
+
+def has_account_number(text: str) -> bool:
+    """Номер счёта — 20 цифр: подряд или группами через пробел, дефис, точку («4081 7810 0000 0066 6666»).
+    Ищутся подряд идущие группы, дающие ровно 20 цифр, поэтому примыкающая цифра или буква («Артикул 7 4081…»,
+    «счёт4081…») номер не прячет, а длинный артикул из 25 цифр за счёт не принимается."""
+    for run in re.finditer(rf"\d+(?:{SEP}\d+)*", text):
+        sizes = [len(g) for g in re.findall(r"\d+", run.group())]
+        for i in range(len(sizes)):
+            total = 0
+            for size in sizes[i:]:
+                total += size
+                if total >= 20:
+                    if total == 20:
+                        return True
+                    break
+    return False
 
 
 def listing_is_clean(offer: Offer) -> tuple[bool, str]:
     variants = _normalized(offer)
     hits = [p for p in INJECTION_PATTERNS if any(re.search(p, v) for v in variants)]
-    if hits:
+    if hits or has_account_number(_plain(offer)):
         return False, "в карточке товара найдены инструкции для агента или платёжные реквизиты — предложение исключено"
     return True, "посторонних инструкций и реквизитов нет"
 
