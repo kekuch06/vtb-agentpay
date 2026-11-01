@@ -57,7 +57,7 @@ def run_tasks(client, tasks):
         if rec:
             offer = next(o["offer"] for o in task["offers"] if o["offer"]["offer_id"] == rec)
             from app.models import Offer
-            compliant = check_offer(Offer.model_validate(offer), gt).passed
+            compliant = check_offer(Offer.model_validate(offer, strict=False), gt).passed
             o, ch = pay(client, task, rec)
             if ch:
                 r = client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})

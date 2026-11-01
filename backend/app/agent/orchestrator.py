@@ -73,11 +73,13 @@ def run(text: str, today: date | None = None) -> Task:
     checked = []
     for merchant_id in catalogs.ADAPTERS:
         t0 = time.perf_counter()
-        offers = catalogs.search(merchant_id, today)
+        offers, broken = catalogs.scan(merchant_id, today)
         relevant = [o for o in offers if constraints.category in ("other", o.category)]
         trace.append(TraceStep(step=f"Каталог «{catalogs.MERCHANTS[merchant_id]['name']}»", zone="untrusted",
-                               detail=f"получено {len(offers)} карточек, по категории {len(relevant)}", ms=_ms(t0)))
-        audit.log("agent", "untrusted", "catalog.searched", {"merchant": merchant_id, "offers": len(offers), "relevant": len(relevant)}, task_id=task_id)
+                               detail=f"получено {len(offers)} карточек, по категории {len(relevant)}"
+                                      + (f", отброшено некорректных {broken}" if broken else ""), ms=_ms(t0)))
+        audit.log("agent", "untrusted", "catalog.searched", {"merchant": merchant_id, "offers": len(offers), "relevant": len(relevant),
+                                                             "broken": broken}, task_id=task_id)
         checked += [check_offer(o, constraints) for o in relevant]
 
     t0 = time.perf_counter()

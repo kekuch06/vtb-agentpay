@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Constraints(BaseModel):
@@ -22,23 +22,34 @@ class Constraints(BaseModel):
 
 
 class Offer(BaseModel):
-    """Нормализованное предложение продавца. Поля description/title — недоверенный текст."""
+    """Нормализованное предложение продавца. Поля description/title — недоверенный текст.
 
-    offer_id: str
-    merchant_id: str
-    merchant_name: str
-    sku: str
-    title: str
-    brand: str
-    category: str
-    capacity_gb: int | None
-    price_rub: int
-    delivery_rub: int
-    total_rub: int
+    Значения тоже недоверенные: цена ≤ 0, отрицательная гарантия или итог, не равный цене с доставкой,
+    отклоняются схемой, и такая карточка не доходит ни до проверки условий, ни до суммы заказа."""
+
+    model_config = ConfigDict(strict=True)
+
+    offer_id: str = Field(max_length=100)
+    merchant_id: str = Field(max_length=40)
+    merchant_name: str = Field(max_length=100)
+    sku: str = Field(min_length=1, max_length=60)
+    title: str = Field(min_length=1, max_length=300)
+    brand: str = Field(max_length=60)
+    category: str = Field(max_length=30)
+    capacity_gb: int | None = Field(ge=1, le=1_000_000)
+    price_rub: int = Field(gt=0, le=10_000_000)
+    delivery_rub: int = Field(ge=0, le=1_000_000)
+    total_rub: int = Field(gt=0)
     delivery_date: date
-    warranty_months: int
+    warranty_months: int = Field(ge=0, le=1200)
     in_stock: bool
-    description: str = ""
+    description: str = Field(default="", max_length=4000)
+
+    @model_validator(mode="after")
+    def _total_is_price_plus_delivery(self) -> "Offer":
+        if self.total_rub != self.price_rub + self.delivery_rub:
+            raise ValueError("итог не равен цене с доставкой")
+        return self
 
 
 class Check(BaseModel):
