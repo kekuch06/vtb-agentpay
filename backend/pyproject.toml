@@ -1,0 +1,13 @@
+[tool.ruff]
+line-length = 160
+target-version = "py312"
+
+[tool.ruff.lint]
+# Ошибки (F — pyflakes, E9 — синтаксис) и порядок импортов. Стиль строк проекта не навязываем.
+select = ["F", "E9", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "eval", "conftest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

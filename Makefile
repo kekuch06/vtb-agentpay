@@ -1,8 +1,8 @@
-.PHONY: install run backend frontend build test eval
+.PHONY: install run backend frontend build test test-pg lint eval lock up down
 
 install:
-	cd backend && uv venv --python 3.12 .venv && uv pip install --python .venv -r requirements.txt
-	cd frontend && npm install
+	cd backend && uv venv --python 3.12 .venv && uv pip install --python .venv --require-hashes -r requirements.txt -r requirements-dev.txt
+	cd frontend && npm ci
 
 build:
 	cd frontend && npm run build
@@ -20,5 +20,25 @@ frontend:
 test:
 	cd backend && .venv/bin/python -m pytest -q
 
+# Те же тесты на PostgreSQL: make test-pg PG=postgresql://agentpay:agentpay@localhost:5432/agentpay_test
+test-pg:
+	cd backend && AGENTPAY_TEST_DATABASE_URL=$(PG) .venv/bin/python -m pytest -q
+
+lint:
+	cd backend && .venv/bin/ruff check app eval tests
+	cd frontend && npx tsc -b
+
 eval:
 	cd backend && .venv/bin/python -m eval.run
+
+# Пересборка зафиксированных версий backend после правки requirements*.in
+lock:
+	cd backend && uv pip compile requirements.in --universal --python-version 3.12 --generate-hashes -o requirements.txt
+	cd backend && uv pip compile requirements-dev.in --universal --python-version 3.12 --generate-hashes -o requirements-dev.txt
+
+# Docker Compose: backend, frontend (nginx), PostgreSQL, Ollama
+up:
+	docker compose up -d --build
+
+down:
+	docker compose down

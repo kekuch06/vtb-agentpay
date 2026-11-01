@@ -1,0 +1,5 @@
+# Тесты и линтер. Версии — в requirements-dev.txt:
+#   uv pip compile requirements-dev.in --universal --python-version 3.12 --generate-hashes -o requirements-dev.txt
+-c requirements.txt
+pytest==9.2.0
+ruff==0.17.3

@@ -1,0 +1,8 @@
+# Прямые зависимости backend. Зафиксированные версии с хешами — в requirements.txt:
+#   uv pip compile requirements.in --universal --python-version 3.12 --generate-hashes -o requirements.txt
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.2
+httpx==0.28.1
+psycopg[binary]==3.3.6
+tzdata==2026.6
