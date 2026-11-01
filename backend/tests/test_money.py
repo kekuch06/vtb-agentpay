@@ -1,6 +1,7 @@
 """Деньги считаются в копейках: сумма платежа совпадает с ценой продавца до копейки."""
 from app import catalogs
 from app.trust import payments
+from conftest import code_for  # noqa: E402
 
 MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"
 OFFER = "komplekt:KP-SSD-2T-S9E"
@@ -17,7 +18,7 @@ def test_kopecks_are_not_lost(client):
     assert o["amount_kop"] == merchant_total_kop
     ch = client.post(f"/api/orders/{o['order_id']}/checkout").json()["challenge"]
     assert ch["amount_kop"] == merchant_total_kop
-    pay = client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]}).json()
+    pay = client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": code_for(client, ch)}).json()
     assert pay["payment"]["amount_kop"] == merchant_total_kop
 
 

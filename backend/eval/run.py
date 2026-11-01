@@ -32,6 +32,11 @@ def oracle(gt: Constraints) -> str | None:
     return passed[0].offer.offer_id if passed else None
 
 
+def code_for(client, ch):
+    """Код подтверждения с «устройства» клиента: в ответе checkout его нет."""
+    return next(m["code"] for m in client.get("/api/sandbox/device").json()["messages"] if m["challenge_id"] == ch["challenge_id"])
+
+
 def pay(client, task, offer_id):
     o = client.post("/api/orders", json={"task_id": task["task_id"], "offer_id": offer_id}).json()["order"]
     ch = client.post(f"/api/orders/{o['order_id']}/checkout").json()["challenge"]
@@ -60,7 +65,7 @@ def run_tasks(client, tasks):
             compliant = check_offer(Offer.model_validate(offer, strict=False), gt).passed
             o, ch = pay(client, task, rec)
             if ch:
-                r = client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
+                r = client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": code_for(client, ch)})
                 paid = r.status_code == 200
         success = rec == expected and (paid or expected is None)
         rows.append({"text": t["text"], "parser": task["parser"], "expected": expected, "recommended": rec,
@@ -95,15 +100,15 @@ def run_attacks(client):
     def wrong_code():
         task = client.post("/api/tasks", json={"text": text}).json()
         o, ch = pay(client, task, task["recommended_offer_id"])
-        wrong = [c for c in ["000001", "123456", "999999", "555555"] if c != ch["sandbox_code"]][:3]
-        for code in wrong + [ch["sandbox_code"]]:  # после трёх неверных даже верный код не проходит
+        wrong = [c for c in ["000001", "123456", "999999", "555555"] if c != code_for(client, ch)][:3]
+        for code in wrong + [code_for(client, ch)]:  # после трёх неверных даже верный код не проходит
             client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": code})
         return "3 попытки, затем блокировка"
 
     def replay():
         task = client.post("/api/tasks", json={"text": text}).json()
         o, ch = pay(client, task, task["recommended_offer_id"])
-        body = {"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]}
+        body = {"challenge_id": ch["challenge_id"], "code": code_for(client, ch)}
         client.post(f"/api/orders/{o['order_id']}/confirm", json=body)
         n = len(payments.all_payments())
         client.post(f"/api/orders/{o['order_id']}/confirm", json=body)
@@ -113,14 +118,14 @@ def run_attacks(client):
         task = client.post("/api/tasks", json={"text": text}).json()
         o, ch = pay(client, task, task["recommended_offer_id"])
         client.post("/api/sandbox/scenario", json={"name": "price_spike", "offer_id": task["recommended_offer_id"]})
-        client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
+        client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": code_for(client, ch)})
         return "policy: price_recheck"
 
     def payee_swap():
         task = client.post("/api/tasks", json={"text": text}).json()
         o, ch = pay(client, task, task["recommended_offer_id"])
         client.post("/api/sandbox/scenario", json={"name": "payee_swap", "order_id": o["order_id"]})
-        client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
+        client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": code_for(client, ch)})
         return "policy: payee_match / order_integrity"
 
     def over_limit():
@@ -136,7 +141,7 @@ def run_attacks(client):
         task = client.post("/api/tasks", json={"text": text}).json()
         o, ch = pay(client, task, task["recommended_offer_id"])
         client.post("/api/sandbox/scenario", json={"name": "out_of_stock", "offer_id": task["recommended_offer_id"]})
-        client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
+        client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": code_for(client, ch)})
         return "policy: stock_recheck"
 
     for name, fn in [("Prompt injection в карточке товара", injection), ("Оплата без подтверждения", no_confirm),

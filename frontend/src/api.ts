@@ -21,7 +21,11 @@ export type Order = {
 export type PolicyResult = { rule: string; passed: boolean; detail: string };
 export type Challenge = {
   challenge_id: string; order_id: string; amount_kop: number; payee_account: string; merchant_name: string;
-  expires_at: string; sandbox_code: string;
+  expires_at: string;
+};
+// Push на устройство клиента. Код не приходит в ответе checkout — только этим каналом.
+export type DeviceMessage = {
+  challenge_id: string; order_id: string; merchant_name: string; amount_kop: number; code: string; expires_at: string;
 };
 export type Payment = { payment_id: string; order_id: string; amount_kop: number; payee_account: string; created_at: string };
 export type AuditEntry = {
@@ -58,9 +62,10 @@ export const api = {
     req<{ order: Order; payment: Payment }>("POST", `/api/orders/${id}/confirm`, { challenge_id, code }),
   audit: (task_id?: string) =>
     req<{ entries: AuditEntry[]; chain: { ok: boolean; entries: number } }>(
-      "GET", task_id ? `/api/audit?task_id=${task_id}` : "/api/audit"),
+      "GET", task_id ? `/api/audit?task_id=${encodeURIComponent(task_id)}` : "/api/audit"),
   settings: () => req<{ per_operation_limit_rub: number; daily_limit_rub: number }>("GET", "/api/settings"),
   setLimit: (v: number) => req("PUT", "/api/settings", { per_operation_limit_rub: v }),
+  device: () => req<{ messages: DeviceMessage[] }>("GET", "/api/sandbox/device"),
   scenario: (name: string, extra: { offer_id?: string; order_id?: string } = {}) =>
     req<{ message: string }>("POST", "/api/sandbox/scenario", { name, ...extra }),
 };

@@ -132,6 +132,13 @@ def get_audit(task_id: str | None = None, me: str = Depends(owner)):
     return {"entries": audit.entries(me, task_id), "chain": audit.verify_chain()}
 
 
+@app.get("/api/sandbox/device")
+def device(me: str = Depends(owner)):
+    """Имитация устройства клиента: push-уведомления с кодами подтверждения. В продукте этого эндпоинта нет —
+    код приходит в приложение банка на зарегистрированное устройство, а не в канал, через который создаётся платёж."""
+    return {"messages": store.device_messages(me)}
+
+
 @app.get("/api/settings")
 def get_settings(me: str = Depends(owner)):
     return payments.settings_for(me)

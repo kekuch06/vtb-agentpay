@@ -2,6 +2,7 @@ import os
 
 os.environ["AGENTPAY_LLM"] = "rules"
 os.environ["AGENTPAY_TODAY"] = "2026-11-02"  # понедельник
+os.environ["AGENTPAY_SECRET_KEY"] = "test-key-" + "0" * 32
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,3 +32,8 @@ def owner_of(client) -> str:
     if SESSION_COOKIE not in client.cookies:
         client.get("/api/health")
     return hashlib.sha256(client.cookies[SESSION_COOKIE].encode()).hexdigest()[:32]
+
+
+def code_for(client, ch: dict) -> str:
+    """Код подтверждения с «устройства» клиента (в продукте — push в приложение банка)."""
+    return next(m["code"] for m in client.get("/api/sandbox/device").json()["messages"] if m["challenge_id"] == ch["challenge_id"])

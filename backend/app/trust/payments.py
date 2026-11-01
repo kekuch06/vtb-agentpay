@@ -15,8 +15,8 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from .. import audit, catalogs, db, store
-from ..models import Challenge, Order, Payment, PolicyResult, Task
+from .. import audit, catalogs, db, keys, store
+from ..models import Challenge, DeviceMessage, Order, Payment, PolicyResult, Task
 from .verifier import _money, _rub, check_offer
 
 ORDER_TTL = timedelta(minutes=15)
@@ -179,9 +179,13 @@ def checkout(owner: str, order_id: str, today: date) -> tuple[Order, list[Policy
         ch = Challenge(
             challenge_id="ch_" + uuid.uuid4().hex[:10], order_id=o.order_id, amount_kop=o.amount_kop,
             payee_account=o.payee_account, merchant_name=o.merchant_name, expires_at=_now() + CHALLENGE_TTL,
-            sandbox_code=f"{secrets.randbelow(10**6):06d}",
         )
-        store.save_challenge(ch, o.order_hash)  # предыдущие запросы подтверждения по этому заказу больше не действуют
+        code = f"{secrets.randbelow(10**6):06d}"
+        # Код не возвращается вызвавшему checkout: он уходит отдельным каналом на устройство клиента,
+        # а в хранилище остаётся только HMAC, привязанный к челленджу.
+        store.save_challenge(ch, o.order_hash, keys.mac("otp", ch.challenge_id, code))  # прежние запросы по заказу аннулируются
+        store.push_to_device(owner, DeviceMessage(challenge_id=ch.challenge_id, order_id=o.order_id, merchant_name=o.merchant_name,
+                                                  amount_kop=o.amount_kop, code=code, expires_at=ch.expires_at))
         o.challenges_issued += 1
         o.status = "awaiting_confirmation"
         store.save_order(owner, o)
@@ -208,7 +212,7 @@ def _confirm(owner: str, o: Order, task: Task, challenge_id: str, code: str, tod
     found = store.get_challenge(challenge_id)
     if found is None or found[0].order_id != o.order_id:
         return _reject_confirmation(owner, o, "unknown_challenge", "подтверждение не найдено для этого заказа")
-    ch, hash_at_request, used = found
+    ch, hash_at_request, code_mac, used = found
     if used:
         return _reject_confirmation(owner, o, "replay", "подтверждение уже использовано")
     if o.status != "awaiting_confirmation" or o.code_attempts >= MAX_CODE_ATTEMPTS:
@@ -219,7 +223,7 @@ def _confirm(owner: str, o: Order, task: Task, challenge_id: str, code: str, tod
     if not hmac.compare_digest(hash_at_request, order_hash(o)):
         store.use_challenge(challenge_id)
         return _reject_confirmation(owner, o, "order_changed", "заказ изменился после запроса подтверждения")
-    if not hmac.compare_digest(code, ch.sandbox_code):
+    if not hmac.compare_digest(keys.mac("otp", challenge_id, code), code_mac):
         o.code_attempts += 1
         left = MAX_CODE_ATTEMPTS - o.code_attempts
         if left <= 0:

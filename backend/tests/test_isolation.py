@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.trust import payments
+from conftest import code_for  # noqa: E402
 
 MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"
 
@@ -36,7 +37,7 @@ def test_foreign_task_and_order_are_not_found(victim_and_attacker):
 def test_foreign_order_cannot_be_confirmed(victim_and_attacker):
     victim, attacker, t, o = victim_and_attacker
     ch = victim.post(f"/api/orders/{o['order_id']}/checkout").json()["challenge"]
-    r = attacker.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": ch["sandbox_code"]})
+    r = attacker.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": code_for(victim, ch)})
     assert r.status_code == 404
     assert payments.all_payments() == []
 

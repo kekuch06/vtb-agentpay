@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 from app.trust import payments
+from conftest import code_for  # noqa: E402
 
 MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"
 
@@ -20,15 +21,15 @@ def _confirm(client, o, ch, code):
     return client.post(f"/api/orders/{o['order_id']}/confirm", json={"challenge_id": ch["challenge_id"], "code": code})
 
 
-def _wrong(ch):
-    return "000000" if ch["sandbox_code"] != "000000" else "111111"
+def _wrong(client, ch):
+    return "000000" if code_for(client, ch) != "000000" else "111111"
 
 
 def test_rejected_order_cannot_get_new_code(client):
     o = _order(client)
     ch = _checkout(client, o)["challenge"]
     for _ in range(3):
-        _confirm(client, o, ch, _wrong(ch))
+        _confirm(client, o, ch, _wrong(client, ch))
     r = _checkout(client, o)
     assert r["challenge"] is None and r["order"]["status"] == "rejected"
     assert payments.all_payments() == []
@@ -37,12 +38,13 @@ def test_rejected_order_cannot_get_new_code(client):
 def test_new_code_does_not_reset_attempts(client):
     o = _order(client)
     ch = _checkout(client, o)["challenge"]
-    _confirm(client, o, ch, _wrong(ch))
-    _confirm(client, o, ch, _wrong(ch))
+    _confirm(client, o, ch, _wrong(client, ch))
+    _confirm(client, o, ch, _wrong(client, ch))
     ch2 = _checkout(client, o)["challenge"]  # «не пришёл код» — запросить новый
     assert ch2 is not None
-    assert _confirm(client, o, ch2, _wrong(ch2)).status_code == 403  # третья неверная попытка по заказу
-    assert _confirm(client, o, ch2, ch2["sandbox_code"]).status_code == 403
+    code = code_for(client, ch2)
+    assert _confirm(client, o, ch2, _wrong(client, ch2)).status_code == 403  # третья неверная попытка по заказу
+    assert _confirm(client, o, ch2, code).status_code == 403
     assert payments.all_payments() == []
 
 
@@ -54,7 +56,7 @@ def test_brute_force_across_checkouts_is_bounded(client):
         if ch is None:
             break
         for _ in range(3):
-            if _confirm(client, o, ch, _wrong(ch)).status_code == 403:
+            if _confirm(client, o, ch, _wrong(client, ch)).status_code == 403:
                 guesses += 1
     assert guesses <= 3
     assert payments.all_payments() == []
@@ -81,6 +83,6 @@ def test_every_rejection_is_audited(client, monkeypatch):
     ch = _checkout(client, o)["challenge"]
     later = payments._now() + payments.CHALLENGE_TTL + timedelta(seconds=1)
     monkeypatch.setattr(payments, "_now", lambda: later)
-    assert _confirm(client, o, ch, ch["sandbox_code"]).status_code == 403
+    assert _confirm(client, o, ch, code_for(client, ch)).status_code == 403
     reasons = [e["data"].get("reason") for e in client.get("/api/audit").json()["entries"] if e["action"] == "confirmation.rejected"]
     assert "expired" in reasons

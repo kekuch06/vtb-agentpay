@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   api, ApiError, ddmm, money, rub,
-  type AuditEntry, type Challenge, type CheckedOffer, type Health, type Order, type Payment, type PolicyResult, type Task,
+  type AuditEntry, type Challenge, type CheckedOffer, type DeviceMessage, type Health, type Order, type Payment, type PolicyResult, type Task,
 } from "./api";
 
 type Msg =
@@ -50,6 +50,7 @@ export default function App() {
   const [order, setOrder] = useState<Order | null>(null);
   const [policy, setPolicy] = useState<PolicyResult[] | null>(null);
   const [challenge, setChallenge] = useState<Challenge | null>(null);
+  const [deviceMsg, setDeviceMsg] = useState<DeviceMessage | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [payment, setPayment] = useState<Payment | null>(null);
   const [tab, setTab] = useState<Tab>("offers");
@@ -121,7 +122,10 @@ export default function App() {
       setOrder(r.order); setPolicy(r.policy);
       const failed = r.policy.filter((p) => !p.passed);
       if (r.challenge) {
+        const id = r.challenge.challenge_id;
         setChallenge(r.challenge);
+        // Код приходит отдельным каналом — sandbox-имитацией push-уведомления на устройство клиента.
+        setDeviceMsg((await api.device().catch(() => ({ messages: [] }))).messages.find((m) => m.challenge_id === id) ?? null);
         setShowConfirm(true);
         push({ role: "event", tone: "ok", text: `Policy Engine: все ${r.policy.length} правил пройдены. Нужно ваше подтверждение.` });
       } else {
@@ -240,7 +244,7 @@ export default function App() {
         </section>
       </main>
 
-      {challenge && showConfirm && order && <ConfirmModal ch={challenge} order={order} onConfirm={confirm} onCancel={() => setShowConfirm(false)} />}
+      {challenge && showConfirm && order && <ConfirmModal ch={challenge} push={deviceMsg} order={order} onConfirm={confirm} onCancel={() => setShowConfirm(false)} />}
     </div>
   );
 }
@@ -376,8 +380,8 @@ function OrderView({ order, policy, payment, onCheckout, busy, onOpenConfirm }: 
   );
 }
 
-function ConfirmModal({ ch, order, onConfirm, onCancel }: {
-  ch: Challenge; order: Order; onConfirm: (code: string) => Promise<string | null>; onCancel: () => void;
+function ConfirmModal({ ch, push, order, onConfirm, onCancel }: {
+  ch: Challenge; push: DeviceMessage | null; order: Order; onConfirm: (code: string) => Promise<string | null>; onCancel: () => void;
 }) {
   const [code, setCode] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -391,8 +395,8 @@ function ConfirmModal({ ch, order, onConfirm, onCancel }: {
     <div className="overlay">
       <div className="modal" role="dialog" aria-modal="true">
         <div className="push">
-          <small>Push-уведомление · sandbox</small>
-          <div>Код подтверждения: <b>{ch.sandbox_code}</b></div>
+          <small>Push-уведомление на устройство · sandbox</small>
+          <div>{push ? <>Код подтверждения: <b>{push.code}</b></> : "Уведомление не пришло — запросите код повторно"}</div>
         </div>
         <h2>Подтвердите оплату</h2>
         <div className="amount">{money(ch.amount_kop)}</div>

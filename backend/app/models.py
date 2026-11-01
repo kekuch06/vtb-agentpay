@@ -117,8 +117,18 @@ class Challenge(BaseModel):
     payee_account: str
     merchant_name: str
     expires_at: datetime
-    # В sandbox код показывается в интерфейсе, имитируя push-уведомление банка.
-    sandbox_code: str
+    # Самого кода здесь нет: он уходит отдельным каналом на устройство клиента (в sandbox — /api/sandbox/device).
+
+
+class DeviceMessage(BaseModel):
+    """Push-уведомление на устройство клиента. В sandbox устройство имитирует /api/sandbox/device."""
+
+    challenge_id: str
+    order_id: str
+    merchant_name: str
+    amount_kop: int
+    code: str
+    expires_at: datetime
 
 
 class Payment(BaseModel):

@@ -29,6 +29,9 @@ SCHEMA = [
         payment_id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, task_id TEXT NOT NULL UNIQUE, owner TEXT NOT NULL,
         bank_day TEXT NOT NULL, amount_kop BIGINT NOT NULL CHECK (amount_kop > 0), doc TEXT NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS challenges_order ON challenges (order_id)",
+    # Отдельный канал доставки кода: в продукте — push на устройство клиента, здесь — его sandbox-имитация.
+    """CREATE TABLE IF NOT EXISTS device_inbox (
+        challenge_id TEXT PRIMARY KEY, owner TEXT NOT NULL, doc TEXT NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS payments_day ON payments (owner, bank_day)",
     "CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, doc TEXT NOT NULL)",
     """CREATE TABLE IF NOT EXISTS audit (

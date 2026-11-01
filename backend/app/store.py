@@ -7,7 +7,7 @@ import json
 from datetime import date
 
 from . import db
-from .models import Challenge, Order, Payment, Task
+from .models import Challenge, DeviceMessage, Order, Payment, Task
 
 
 def save_task(owner: str, t: Task) -> None:
@@ -38,21 +38,33 @@ def order_owner(order_id: str) -> str | None:
     return rows[0][0] if rows else None
 
 
-def save_challenge(ch: Challenge, order_hash: str) -> None:
-    """Новый запрос подтверждения; прежние по этому заказу больше не действуют."""
+def save_challenge(ch: Challenge, order_hash: str, code_mac: str) -> None:
+    """Новый запрос подтверждения; прежние по этому заказу больше не действуют. Код хранится только как HMAC."""
     with db.tx():
         db.execute("UPDATE challenges SET used = 1 WHERE order_id = ?", (ch.order_id,))
         db.execute("INSERT INTO challenges (challenge_id, order_id, used, doc) VALUES (?, ?, 0, ?)",
-                   (ch.challenge_id, ch.order_id, json.dumps({"challenge": ch.model_dump(mode="json"), "order_hash": order_hash})))
+                   (ch.challenge_id, ch.order_id, json.dumps({"challenge": ch.model_dump(mode="json"),
+                                                              "order_hash": order_hash, "code_mac": code_mac})))
 
 
-def get_challenge(challenge_id: str) -> tuple[Challenge, str, bool] | None:
-    """(челлендж, хеш заказа на момент запроса, использован ли)."""
+def get_challenge(challenge_id: str) -> tuple[Challenge, str, str, bool] | None:
+    """(челлендж, хеш заказа на момент запроса, HMAC кода, использован ли)."""
     rows = db.query("SELECT doc, used FROM challenges WHERE challenge_id = ?", (challenge_id,))
     if not rows:
         return None
     doc = json.loads(rows[0][0])
-    return Challenge.model_validate(doc["challenge"]), doc["order_hash"], bool(rows[0][1])
+    return Challenge.model_validate(doc["challenge"]), doc["order_hash"], doc["code_mac"], bool(rows[0][1])
+
+
+def push_to_device(owner: str, m: DeviceMessage) -> None:
+    db.execute("INSERT INTO device_inbox (challenge_id, owner, doc) VALUES (?, ?, ?)", (m.challenge_id, owner, m.model_dump_json()))
+
+
+def device_messages(owner: str) -> list[DeviceMessage]:
+    """Коды по действующим запросам подтверждения этого клиента."""
+    rows = db.query("SELECT d.doc FROM device_inbox d JOIN challenges c ON c.challenge_id = d.challenge_id "
+                    "WHERE d.owner = ? AND c.used = 0 ORDER BY c.rowid", (owner,))
+    return [DeviceMessage.model_validate_json(r[0]) for r in rows]
 
 
 def use_challenge(challenge_id: str) -> None:
@@ -90,5 +102,5 @@ def all_payments() -> list[Payment]:
 def clear() -> None:
     """Удаляет поручения, заказы и платежи (не журнал): прогон метрик начинает каждое задание с чистого клиента."""
     with db.tx():
-        for table in ("payments", "challenges", "orders", "tasks", "settings"):
+        for table in ("payments", "device_inbox", "challenges", "orders", "tasks", "settings"):
             db.execute(f"DELETE FROM {table}")
