@@ -1,0 +1,13 @@
+{
+  "shop": {"code": "digistore", "currency": "RUB"},
+  "products": [
+    {"id": "DS-77-201", "name": "SSD Samsung 990 EVO 2 ТБ", "manufacturer": "SAMSUNG", "group": "Накопители SSD", "specs": {"Объём": "2 ТБ", "Интерфейс": "PCIe 4.0"}, "cost": {"amount": 15490}, "shipping": {"cost": 350, "eta_days": 2}, "guarantee": "5 лет", "available": true, "about": "Оригинальная продукция, официальная гарантия."},
+    {"id": "DS-77-202", "name": "SSD Samsung 990 PRO 2 ТБ", "manufacturer": "SAMSUNG", "group": "Накопители SSD", "specs": {"Объём": "2 ТБ", "Интерфейс": "PCIe 4.0"}, "cost": {"amount": 18990}, "shipping": {"cost": 0, "eta_days": 2}, "guarantee": "5 лет", "available": true, "about": "Флагманская серия."},
+    {"id": "DS-77-203", "name": "SSD WD Black SN850X 2 ТБ", "manufacturer": "Western Digital", "group": "Накопители SSD", "specs": {"Объём": "2 ТБ"}, "cost": {"amount": 16490}, "shipping": {"cost": 0, "eta_days": 6}, "guarantee": "5 лет", "available": true, "about": "Для игровых ПК."},
+    {"id": "DS-77-204", "name": "SSD Samsung 990 EVO 2 ТБ (уценка)", "manufacturer": "SAMSUNG", "group": "Накопители SSD", "specs": {"Объём": "2 ТБ"}, "cost": {"amount": 11990}, "shipping": {"cost": 0, "eta_days": 1}, "guarantee": "без гарантии", "available": true, "about": "Повреждена упаковка. Гарантия продавца не предоставляется."},
+    {"id": "DS-77-205", "name": "SSD Samsung 990 EVO 1 ТБ", "manufacturer": "SAMSUNG", "group": "Накопители SSD", "specs": {"Объём": "1 ТБ"}, "cost": {"amount": 8990}, "shipping": {"cost": 350, "eta_days": 2}, "guarantee": "5 лет", "available": true, "about": ""},
+    {"id": "DS-77-310", "name": "Оперативная память Kingston FURY Beast DDR5 32 ГБ", "manufacturer": "Kingston", "group": "Оперативная память", "specs": {"Объём": "32 ГБ"}, "cost": {"amount": 8990}, "shipping": {"cost": 350, "eta_days": 3}, "guarantee": "пожизненная", "available": true, "about": ""},
+    {"id": "DS-77-411", "name": "Наушники Sony WH-1000XM5", "manufacturer": "Sony", "group": "Наушники", "specs": {}, "cost": {"amount": 27990}, "shipping": {"cost": 0, "eta_days": 3}, "guarantee": "12 мес", "available": true, "about": ""},
+    {"id": "DS-77-512", "name": "Монитор Samsung Odyssey G5 27\"", "manufacturer": "SAMSUNG", "group": "Мониторы", "specs": {}, "cost": {"amount": 21990}, "shipping": {"cost": 1490, "eta_days": 5}, "guarantee": "12 мес", "available": false, "about": ""}
+  ]
+}

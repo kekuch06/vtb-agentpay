@@ -1,0 +1,13 @@
+{
+  "seller": "techmart",
+  "items": [
+    {"sku": "TM-1001", "title": "Samsung 990 EVO 2TB NVMe M.2", "brand": "Samsung", "type": "ssd", "capacity_gb": 2000, "price_rub": 15990, "delivery": {"price": 0, "days": 3}, "warranty_months": 60, "stock": 14, "text": "Твердотельный накопитель PCIe 4.0, до 5000 МБ/с."},
+    {"sku": "TM-1002", "title": "Samsung 870 EVO 2TB SATA 2.5\"", "brand": "Samsung", "type": "ssd", "capacity_gb": 2000, "price_rub": 14490, "delivery": {"price": 490, "days": 2}, "warranty_months": 60, "stock": 6, "text": "SATA III, для ноутбуков и ПК."},
+    {"sku": "TM-1003", "title": "Kingston KC3000 2048GB", "brand": "Kingston", "type": "ssd", "capacity_gb": 2048, "price_rub": 13990, "delivery": {"price": 0, "days": 5}, "warranty_months": 60, "stock": 3, "text": "PCIe 4.0 NVMe, радиатор в комплекте."},
+    {"sku": "TM-1004", "title": "Crucial P3 1TB", "brand": "Crucial", "type": "ssd", "capacity_gb": 1000, "price_rub": 5990, "delivery": {"price": 290, "days": 2}, "warranty_months": 36, "stock": 20, "text": "PCIe 3.0 NVMe."},
+    {"sku": "TM-1005", "title": "Kingston FURY Beast 32GB DDR5-5600 (2x16)", "brand": "Kingston", "type": "ram", "capacity_gb": 32, "price_rub": 9490, "delivery": {"price": 0, "days": 2}, "warranty_months": 120, "stock": 9, "text": "Комплект из двух модулей."},
+    {"sku": "TM-1006", "title": "Sony WH-1000XM5", "brand": "Sony", "type": "headphones", "capacity_gb": null, "price_rub": 29990, "delivery": {"price": 0, "days": 1}, "warranty_months": 12, "stock": 4, "text": "Беспроводные наушники с шумоподавлением."},
+    {"sku": "TM-1007", "title": "Монитор Samsung Odyssey G5 27\" QHD 165 Гц", "brand": "Samsung", "type": "monitor", "capacity_gb": null, "price_rub": 22990, "delivery": {"price": 990, "days": 4}, "warranty_months": 12, "stock": 2, "text": "VA, 2560x1440."},
+    {"sku": "TM-1008", "title": "Seagate BarraCuda 4TB", "brand": "Seagate", "type": "hdd", "capacity_gb": 4000, "price_rub": 8990, "delivery": {"price": 390, "days": 3}, "warranty_months": 24, "stock": 0, "text": "3.5\", 5400 об/мин."}
+  ]
+}

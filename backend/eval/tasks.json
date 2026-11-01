@@ -1,0 +1,299 @@
+{
+ "today": "2026-11-02",
+ "_comment": "Эталонные ограничения размечены вручную. Ожидаемое предложение — самое дешёвое, удовлетворяющее эталону (оракул на тех же каталогах).",
+ "tasks": [
+  {
+   "text": "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "deliver_by": "2026-11-06",
+    "min_warranty_months": 1
+   }
+  },
+  {
+   "text": "Нужен ссд на 2 терабайта до 15 тысяч",
+   "gt": {
+    "category": "ssd",
+    "capacity_gb": 2000,
+    "max_total_rub": 15000
+   }
+  },
+  {
+   "text": "Samsung 990 EVO 2TB, привезти завтра",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "deliver_by": "2026-11-03",
+    "keywords": [
+     "990 evo"
+    ]
+   }
+  },
+  {
+   "text": "Самсунг 990 про на 2 ТБ не дороже 20к",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "max_total_rub": 20000,
+    "keywords": [
+     "990 pro"
+    ]
+   }
+  },
+  {
+   "text": "Купи Kingston SSD 2 ТБ, доставка за 2 дня",
+   "gt": {
+    "category": "ssd",
+    "brand": "Kingston",
+    "capacity_gb": 2000,
+    "deliver_by": "2026-11-04"
+   }
+  },
+  {
+   "text": "твердотельный накопитель 1 ТБ подешевле, с гарантией от 3 лет",
+   "gt": {
+    "category": "ssd",
+    "capacity_gb": 1000,
+    "min_warranty_months": 36
+   }
+  },
+  {
+   "text": "Оперативка DDR5 32 ГБ Kingston до 9500 рублей",
+   "gt": {
+    "category": "ram",
+    "brand": "Kingston",
+    "capacity_gb": 32,
+    "max_total_rub": 9500
+   }
+  },
+  {
+   "text": "Наушники Sony WH-1000XM5 до 29 тысяч",
+   "gt": {
+    "category": "headphones",
+    "brand": "Sony",
+    "max_total_rub": 29000,
+    "keywords": [
+     "wh-1000xm5"
+    ]
+   }
+  },
+  {
+   "text": "Sony XM5 чтобы привезли завтра",
+   "gt": {
+    "category": "headphones",
+    "brand": "Sony",
+    "deliver_by": "2026-11-03",
+    "keywords": [
+     "xm5"
+    ]
+   }
+  },
+  {
+   "text": "Жёсткий диск 4 ТБ до 10 тысяч",
+   "gt": {
+    "category": "hdd",
+    "capacity_gb": 4000,
+    "max_total_rub": 10000
+   }
+  },
+  {
+   "text": "Монитор Samsung Odyssey G5 до пятницы",
+   "gt": {
+    "category": "monitor",
+    "brand": "Samsung",
+    "deliver_by": "2026-11-06",
+    "keywords": [
+     "odyssey g5"
+    ]
+   }
+  },
+  {
+   "text": "SSD WD 2 ТБ с гарантией",
+   "gt": {
+    "category": "ssd",
+    "brand": "Western Digital",
+    "capacity_gb": 2000,
+    "min_warranty_months": 1
+   }
+  },
+  {
+   "text": "Нужен SSD 2TB Samsung в пределах 16 000 ₽ к среде",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "max_total_rub": 16000,
+    "deliver_by": "2026-11-04"
+   }
+  },
+  {
+   "text": "ssd crucial 1tb до 6500",
+   "gt": {
+    "category": "ssd",
+    "brand": "Crucial",
+    "capacity_gb": 1000,
+    "max_total_rub": 6500
+   }
+  },
+  {
+   "text": "Самый дешёвый SSD Samsung 2 ТБ, официальная гарантия обязательна",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "min_warranty_months": 1
+   }
+  },
+  {
+   "text": "SSD 2 ТБ до 12 тысяч с гарантией",
+   "gt": {
+    "category": "ssd",
+    "capacity_gb": 2000,
+    "max_total_rub": 12000,
+    "min_warranty_months": 1
+   }
+  },
+  {
+   "text": "Найди SSD Samsung 2 ТБ до 06.11 не дороже 15 тысяч",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "max_total_rub": 15000,
+    "deliver_by": "2026-11-06"
+   }
+  },
+  {
+   "text": "Kingston KC3000 2 ТБ, бюджет 14 500 ₽",
+   "gt": {
+    "category": "ssd",
+    "brand": "Kingston",
+    "capacity_gb": 2000,
+    "max_total_rub": 14500,
+    "keywords": [
+     "kc3000"
+    ]
+   }
+  },
+  {
+   "text": "оперативная память 32 гб с гарантией 5 лет, послезавтра",
+   "gt": {
+    "category": "ram",
+    "capacity_gb": 32,
+    "min_warranty_months": 60,
+    "deliver_by": "2026-11-04"
+   }
+  },
+  {
+   "text": "Наушники Sony за 3 дня с гарантией от 12 месяцев",
+   "gt": {
+    "category": "headphones",
+    "brand": "Sony",
+    "deliver_by": "2026-11-05",
+    "min_warranty_months": 12
+   }
+  }
+ ],
+ "_comment_holdout": "Отложенный набор: написан после настройки правил, правила под него не правились.",
+ "holdout": [
+  {
+   "text": "хочу ssd от самсунга терабайта на два, максимум 16 тыс, гарантия нужна",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "max_total_rub": 16000,
+    "min_warranty_months": 1
+   }
+  },
+  {
+   "text": "подбери наушники сони, чтобы доставили к четвергу",
+   "gt": {
+    "category": "headphones",
+    "brand": "Sony",
+    "deliver_by": "2026-11-05"
+   }
+  },
+  {
+   "text": "2TB NVMe Kingston, budget 15000",
+   "gt": {
+    "category": "ssd",
+    "brand": "Kingston",
+    "capacity_gb": 2000,
+    "max_total_rub": 15000
+   }
+  },
+  {
+   "text": "Мне нужен накопитель на 1 ТБ от Crucial к пятнице",
+   "gt": {
+    "category": "ssd",
+    "brand": "Crucial",
+    "capacity_gb": 1000,
+    "deliver_by": "2026-11-06"
+   }
+  },
+  {
+   "text": "Память 32 гигабайта DDR5, чтобы гарантия была не меньше 10 лет",
+   "gt": {
+    "category": "ram",
+    "capacity_gb": 32,
+    "min_warranty_months": 120
+   }
+  },
+  {
+   "text": "Western Digital SN850X 2 ТБ до 17 000 руб",
+   "gt": {
+    "category": "ssd",
+    "brand": "Western Digital",
+    "capacity_gb": 2000,
+    "max_total_rub": 17000,
+    "keywords": [
+     "sn850x"
+    ]
+   }
+  },
+  {
+   "text": "Найди монитор Samsung до 25 тысяч",
+   "gt": {
+    "category": "monitor",
+    "brand": "Samsung",
+    "max_total_rub": 25000
+   }
+  },
+  {
+   "text": "Нужен HDD Seagate 4TB, доставка в течение 3 дней",
+   "gt": {
+    "category": "hdd",
+    "brand": "Seagate",
+    "capacity_gb": 4000,
+    "deliver_by": "2026-11-05"
+   }
+  },
+  {
+   "text": "SSD Samsung 870 EVO на 2 ТБ дешевле 15 тысяч рублей",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "max_total_rub": 15000,
+    "keywords": [
+     "870 evo"
+    ]
+   }
+  },
+  {
+   "text": "Самсунг 2 тб ссд, но только с гарантией 5 лет и до 7 ноября",
+   "gt": {
+    "category": "ssd",
+    "brand": "Samsung",
+    "capacity_gb": 2000,
+    "min_warranty_months": 60,
+    "deliver_by": "2026-11-07"
+   }
+  }
+ ]
+}
