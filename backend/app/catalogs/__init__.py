@@ -11,6 +11,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+from .. import store
 from ..models import Offer
 
 DIR = Path(__file__).parent
@@ -122,11 +123,27 @@ def _komplekt(it: dict, today: date) -> Offer:
 ADAPTERS = {"techmart": _techmart, "digistore": _digistore, "komplekt": _komplekt}
 
 
-def scan(merchant_id: str, today: date) -> tuple[list[Offer], int]:
+def _items(merchant_id: str, owner: str | None) -> object:
+    """Сырые карточки продавца для клиента: общий тестовый каталог плюс сценарии sandbox этого клиента поверх копии.
+    Сценарий одного клиента не меняет каталог другим."""
+    items_key, sku_key = RAW_KEYS[merchant_id]
+    raw = _state[merchant_id].get(items_key)
+    events = [e for e in store.sandbox_events(owner) if e[1].split(":", 1)[0] == merchant_id]
+    if not events or not isinstance(raw, list):
+        return raw
+    raw = copy.deepcopy(raw)
+    for name, offer_id in events:
+        sku = offer_id.partition(":")[2]
+        it = next((x for x in raw if isinstance(x, dict) and x.get(sku_key) == sku), None)
+        if it is not None:
+            _mutate(it, merchant_id, name)
+    return raw
+
+
+def scan(merchant_id: str, today: date, owner: str | None = None) -> tuple[list[Offer], int]:
     """Карточки продавца, приведённые к Offer, и число отброшенных. Карточка с другой схемой или недопустимыми
     значениями (цена ≤ 0, отрицательный срок, строка вместо числа) не попадает в выдачу и не роняет поиск."""
-    items, _ = RAW_KEYS[merchant_id]
-    raw = _state[merchant_id].get(items)
+    raw = _items(merchant_id, owner)
     offers, broken = [], 0
     for it in raw if isinstance(raw, list) else []:
         try:
@@ -136,34 +153,40 @@ def scan(merchant_id: str, today: date) -> tuple[list[Offer], int]:
     return offers, broken
 
 
-def search(merchant_id: str, today: date) -> list[Offer]:
-    return scan(merchant_id, today)[0]
+def search(merchant_id: str, today: date, owner: str | None = None) -> list[Offer]:
+    return scan(merchant_id, today, owner)[0]
 
 
-def fetch_offer(offer_id: str, today: date) -> Offer | None:
+def fetch_offer(offer_id: str, today: date, owner: str | None = None) -> Offer | None:
     """Повторный запрос актуальной карточки у продавца (используется для перепроверки перед оплатой).
     Если карточка стала некорректной, товара для платежа нет."""
     merchant_id = offer_id.split(":", 1)[0]
     if merchant_id not in ADAPTERS:
         return None
-    return next((o for o in search(merchant_id, today) if o.offer_id == offer_id), None)
+    return next((o for o in search(merchant_id, today, owner) if o.offer_id == offer_id), None)
 
 
 # --- Сценарии sandbox: имитация изменений на стороне продавца между выбором и оплатой ---
+
+SCENARIOS = {"price_spike": "Продавец поднял цену на 25%", "out_of_stock": "Товар закончился у продавца"}
+
 
 def _find_raw(offer_id: str) -> dict | None:
     merchant_id, _, sku = offer_id.partition(":")
     if merchant_id not in RAW_KEYS or not sku:
         return None
     items, key = RAW_KEYS[merchant_id]
-    return next((it for it in _state[merchant_id][items] if it.get(key) == sku), None)
+    return next((it for it in _state[merchant_id][items] if isinstance(it, dict) and it.get(key) == sku), None)
 
 
-def apply_scenario(name: str, offer_id: str) -> str:
-    it = _find_raw(offer_id)
-    if it is None:
+def check_scenario(name: str, offer_id: str) -> str:
+    """Сообщение сценария; KeyError — неизвестный сценарий или предложение."""
+    if name not in SCENARIOS or _find_raw(offer_id) is None:
         raise KeyError(offer_id)
-    merchant_id = offer_id.split(":", 1)[0]
+    return SCENARIOS[name]
+
+
+def _mutate(it: dict, merchant_id: str, name: str) -> None:
     if name == "price_spike":
         if merchant_id == "techmart":
             it["price_rub"] = int(it["price_rub"] * 1.25)
@@ -171,13 +194,10 @@ def apply_scenario(name: str, offer_id: str) -> str:
             it["cost"]["amount"] = int(it["cost"]["amount"] * 1.25)
         else:
             it["price_kop"] = int(it["price_kop"] * 1.25)
-        return "Продавец поднял цену на 25%"
-    if name == "out_of_stock":
+    elif name == "out_of_stock":
         if merchant_id == "digistore":
             it["available"] = False
         elif merchant_id == "techmart":
             it["stock"] = 0
         else:
             it["qty"] = 0
-        return "Товар закончился у продавца"
-    raise KeyError(name)

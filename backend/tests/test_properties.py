@@ -16,7 +16,7 @@ from app import catalogs, store
 from app.agent import grounding, orchestrator, rules
 from app.models import Constraints, Offer
 from app.trust import payments, verifier
-from conftest import code_for
+from conftest import code_for, owner_of
 
 MON = date(2026, 11, 2)
 # AGENTPAY_HYPOTHESIS_SCALE=10 — глубокий прогон (разово, перед релизом); по умолчанию — быстрый, для CI.
@@ -275,7 +275,7 @@ class PaymentFlow(RuleBasedStateMachine):
         if r.status_code == 200:
             assert right, "платёж по неверному коду"
             p = r.json()["payment"]
-            fresh = catalogs.fetch_offer(r.json()["order"]["offer_id"], MON)
+            fresh = catalogs.fetch_offer(r.json()["order"]["offer_id"], MON, owner_of(self.client))  # каталог этого клиента
             assert fresh is not None and fresh.total_kop == p["amount_kop"], "сумма платежа не равна актуальной цене"
             assert p["amount_kop"] <= self.limit * 100
             self.paid_orders.add(oid)

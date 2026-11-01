@@ -121,7 +121,7 @@ def create_order(owner: str, task: Task, offer_id: str, today: date) -> Order:
     if merchant is None:
         raise ValueError("продавец не найден в реестре банка")
     # Карточку запрашиваем у продавца заново: сумма заказа — актуальная цена, а не та, что видела модель.
-    fresh = catalogs.fetch_offer(offer_id, today)
+    fresh = catalogs.fetch_offer(offer_id, today, owner)
     if fresh is None:
         raise ValueError("продавец больше не предлагает этот товар")
     now = _now()
@@ -145,7 +145,7 @@ def evaluate(owner: str, o: Order, task: Task, today: date) -> list[PolicyResult
     """Policy Engine. Каждое правило независимо; платёж возможен только если прошли все."""
     r: list[PolicyResult] = []
     merchant = catalogs.MERCHANTS.get(o.merchant_id)
-    fresh = catalogs.fetch_offer(o.offer_id, today)
+    fresh = catalogs.fetch_offer(o.offer_id, today, owner)
 
     r.append(PolicyResult(rule="order_integrity", passed=hmac.compare_digest(order_hash(o), o.order_hash),
                           detail="заказ не изменялся после создания" if hmac.compare_digest(order_hash(o), o.order_hash)

@@ -1,7 +1,9 @@
 """Деньги считаются в копейках: сумма платежа совпадает с ценой продавца до копейки."""
+from datetime import date
+
 from app import catalogs
 from app.trust import payments
-from conftest import code_for
+from conftest import code_for, owner_of
 
 MAIN = "Найди SSD Samsung 2 ТБ с гарантией и доставкой до пятницы"
 OFFER = "komplekt:KP-SSD-2T-S9E"
@@ -9,8 +11,8 @@ OFFER = "komplekt:KP-SSD-2T-S9E"
 
 def test_kopecks_are_not_lost(client):
     client.post("/api/sandbox/scenario", json={"name": "price_spike", "offer_id": OFFER})  # 14 790,00 → 18 487,50 ₽
-    raw = catalogs._find_raw(OFFER)
-    merchant_total_kop = raw["price_kop"] + raw["delivery_price_kop"]
+    # Сценарий действует на этого клиента: цену продавца смотрим в его каталоге.
+    merchant_total_kop = catalogs.fetch_offer(OFFER, date(2026, 11, 2), owner_of(client)).total_kop
     assert merchant_total_kop % 100  # в цене есть копейки
     payments.settings["per_operation_limit_rub"] = 50_000
     t = client.post("/api/tasks", json={"text": MAIN}).json()

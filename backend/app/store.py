@@ -126,6 +126,28 @@ def put_settings(owner: str, values: dict) -> None:
                (owner, json.dumps(values)))
 
 
+MAX_SANDBOX_EVENTS = 50  # на клиента: список не растёт бесконечно от повторных сценариев
+
+
+def sandbox_events(owner: str | None) -> list[tuple[str, str]]:
+    """Сценарии sandbox клиента по порядку: (сценарий, предложение)."""
+    if not owner:
+        return []
+    rows = db.query("SELECT doc FROM sandbox WHERE owner = ?", (owner,))
+    return [tuple(e) for e in json.loads(rows[0][0])] if rows else []
+
+
+def add_sandbox_event(owner: str, name: str, offer_id: str) -> None:
+    with db.tx():
+        events = [list(e) for e in sandbox_events(owner)][-(MAX_SANDBOX_EVENTS - 1):] + [[name, offer_id]]
+        db.execute("INSERT INTO sandbox (owner, doc) VALUES (?, ?) ON CONFLICT (owner) DO UPDATE SET doc = excluded.doc",
+                   (owner, json.dumps(events)))
+
+
+def clear_sandbox(owner: str) -> None:
+    db.execute("DELETE FROM sandbox WHERE owner = ?", (owner,))
+
+
 def all_payments() -> list[Payment]:
     return [Payment.model_validate_json(r[0]) for r in db.query("SELECT doc FROM payments ORDER BY payment_id")]
 
@@ -133,5 +155,5 @@ def all_payments() -> list[Payment]:
 def clear() -> None:
     """Удаляет поручения, заказы и платежи (не журнал): прогон метрик начинает каждое задание с чистого клиента."""
     with db.tx():
-        for table in ("payments", "device_inbox", "challenges", "limit_requests", "orders", "tasks", "settings"):
+        for table in ("payments", "device_inbox", "challenges", "limit_requests", "orders", "tasks", "settings", "sandbox"):
             db.execute(f"DELETE FROM {table}")

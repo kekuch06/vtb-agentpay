@@ -5,7 +5,7 @@ import hashlib
 import os
 import re
 import secrets
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.gzip import GZipMiddleware
 
-from . import audit, catalogs, db, keys, store
+from . import audit, catalogs, keys, sandbox, store
 from .agent import llm, orchestrator
 from .models import Task
 from .trust import payments
@@ -270,41 +270,21 @@ def confirm_settings(body: LimitConfirmIn, me: str = Depends(owner)):
 
 
 @app.get("/api/catalogs")
-def get_catalogs():
-    return {m: [o.model_dump(mode="json") for o in catalogs.search(m, today())] for m in catalogs.ADAPTERS}
+def get_catalogs(me: str = Depends(owner)):
+    return {m: [o.model_dump(mode="json") for o in catalogs.search(m, today(), me)] for m in catalogs.ADAPTERS}
 
 
 @app.post("/api/sandbox/scenario")
 def scenario(body: ScenarioIn, me: str = Depends(owner)):
-    """Имитация событий, которые Policy Engine должен перехватить. Доступно только в sandbox."""
-    if body.name == "reset":
-        catalogs.reset()
-        return {"message": "каталоги восстановлены"}
-    if body.name == "payee_swap":
-        with db.tx():
-            o = store.get_order(me, body.order_id or "")
-            if o is None:
-                raise HTTPException(404, "заказ не найден")
-            o.payee_account = "40817810000000666666"  # имитация подмены реквизитов после создания заказа
-            store.save_order(me, o)
-            audit.log("sandbox", "untrusted", "sandbox.payee_swapped", {"payee_account": o.payee_account},
-                      task_id=o.task_id, order_id=o.order_id, owner=me)
-        return {"message": "реквизиты получателя в заказе подменены"}
-    if body.name == "code_expired":
-        with db.tx():
-            o = store.get_order(me, body.order_id or "")
-            if o is None:
-                raise HTTPException(404, "заказ не найден")
-            if not store.expire_challenges(o.order_id, payments._now() - timedelta(seconds=1)):
-                raise HTTPException(409, "у заказа нет действующего кода подтверждения")
-            audit.log("sandbox", "untrusted", "sandbox.code_expired", {}, task_id=o.task_id, order_id=o.order_id, owner=me)
-        return {"message": "срок кода подтверждения истёк"}
+    """Имитация событий, которые Policy Engine должен перехватить. Доступно только в sandbox и только для своего клиента."""
     try:
-        msg = catalogs.apply_scenario(body.name, body.offer_id or "")
+        return {"message": sandbox.run(me, body.name, body.offer_id or "", body.order_id or "")}
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
     except KeyError:
         raise HTTPException(400, "неизвестный сценарий или предложение")
-    audit.log("sandbox", "untrusted", f"sandbox.{body.name}", {"offer_id": body.offer_id}, owner=me)
-    return {"message": msg}
 
 
 DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"

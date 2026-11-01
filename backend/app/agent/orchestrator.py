@@ -83,7 +83,7 @@ def run(text: str, today: date | None = None, owner: str | None = None) -> Task:
     checked = []
     for merchant_id in catalogs.ADAPTERS:
         t0 = time.perf_counter()
-        offers, broken = catalogs.scan(merchant_id, today)
+        offers, broken = catalogs.scan(merchant_id, today, owner)
         relevant = [o for o in offers if constraints.category in ("other", o.category)]
         trace.append(TraceStep(step=f"Каталог «{catalogs.MERCHANTS[merchant_id]['name']}»", zone="untrusted",
                                detail=f"получено {len(offers)} карточек, по категории {len(relevant)}"
