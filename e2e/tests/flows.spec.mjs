@@ -355,3 +355,12 @@ test("лимит на одну покупку: повышение только �
   await expect(select).toHaveValue("10000");
   await expect(dialog(page)).toHaveCount(0);
 });
+
+test("слишком много поручений: сообщение говорит, когда повторить", async ({ page }) => {
+  test.info().annotations.push({ type: "console-errors-expected" });
+  await page.route("**/api/tasks", (r) => r.fulfill({ status: 429, headers: { "Retry-After": "12" },
+    contentType: "application/json", body: JSON.stringify({ detail: "слишком много запросов, повторите через 12 с" }) }));
+  await composer(page).fill(MAIN);
+  await composer(page).press("Enter");
+  await expect(events(page).last()).toContainText("Слишком много запросов, повторите через 12 с");
+});

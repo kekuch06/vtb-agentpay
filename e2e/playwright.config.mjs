@@ -40,6 +40,9 @@ export default defineConfig({
       AGENTPAY_TODAY: "2026-11-02",
       AGENTPAY_DATABASE_PATH: db,
       AGENTPAY_SECRET_KEY: randomBytes(32).toString("hex"),
+      // Сотня сессий за пару минут с одного адреса — это прогон тестов; лимиты проверяют backend/tests/test_ratelimit.py.
+      AGENTPAY_RATE_SESSIONS_IP: "2000/60",
+      AGENTPAY_RATE_TASKS_IP: "2000/60",
     },
   },
 });

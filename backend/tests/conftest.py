@@ -1,6 +1,7 @@
 import os
 
 os.environ["AGENTPAY_LLM"] = "rules"
+os.environ["AGENTPAY_RATE_LIMITS"] = "off"  # сотни запросов с одного «адреса»; ограничение проверяет test_ratelimit.py
 os.environ["AGENTPAY_TODAY"] = "2026-11-02"  # понедельник
 os.environ["AGENTPAY_SECRET_KEY"] = "test-key-" + "0" * 32
 

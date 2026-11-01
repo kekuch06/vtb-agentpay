@@ -36,6 +36,11 @@ services:
       AGENTPAY_LLM_BASE_URL: ${AGENTPAY_LLM_BASE_URL:-}
       AGENTPAY_LLM_API_KEY: ${AGENTPAY_LLM_API_KEY:-}
       AGENTPAY_LLM_THINKING: ${AGENTPAY_LLM_THINKING:-auto}
+      # Ограничение частоты: «число/секунд» (пусто — значения по умолчанию из app/ratelimit.py)
+      AGENTPAY_RATE_LIMITS: ${AGENTPAY_RATE_LIMITS:-on}
+      AGENTPAY_RATE_TASKS: ${AGENTPAY_RATE_TASKS:-}
+      AGENTPAY_RATE_TASKS_IP: ${AGENTPAY_RATE_TASKS_IP:-}
+      AGENTPAY_RATE_SESSIONS_IP: ${AGENTPAY_RATE_SESSIONS_IP:-}
       AGENTPAY_TODAY: ${AGENTPAY_TODAY:-}
       AGENTPAY_COOKIE_SECURE: ${AGENTPAY_COOKIE_SECURE:-0}
     # Ollama не в depends_on: без модели backend разбирает поручения правилами и переключается на модель,

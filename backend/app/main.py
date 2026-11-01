@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.gzip import GZipMiddleware
 
-from . import audit, catalogs, keys, sandbox, store
+from . import audit, catalogs, keys, ratelimit, sandbox, store
 from .agent import llm, orchestrator
 from .models import Task
 from .trust import payments
@@ -44,6 +44,8 @@ async def session(request: Request, call_next):
     # Сессию открывает только изменяющий запрос. Чтение без cookie получает пустого временного клиента и cookie
     # не ставит: иначе опоздавший ответ на стартовый GET перезаписывал cookie сессии, в которой уже создано поручение.
     fresh = not valid and request.method not in ("GET", "HEAD", "OPTIONS")
+    if fresh and (wait := ratelimit.check((ratelimit.SESSIONS_IP, _ip(request)))):
+        return _too_many(wait)
     if not valid:
         token = secrets.token_urlsafe(32)
     request.state.owner = hashlib.sha256(token.encode()).hexdigest()[:32]
@@ -124,6 +126,16 @@ class BodyLimit:
 app.add_middleware(BodyLimit)
 
 
+def _ip(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
+def _too_many(wait: float) -> JSONResponse:
+    seconds = max(1, int(wait + 0.999))
+    return JSONResponse({"detail": f"слишком много запросов, повторите через {seconds} с"}, status_code=429,
+                        headers={"Retry-After": str(seconds), "Cache-Control": "no-store"})
+
+
 def owner(request: Request) -> str:
     return request.state.owner
 
@@ -168,8 +180,11 @@ def health():
             "sandbox": True}
 
 
-@app.post("/api/tasks", response_model=Task)
-def create_task(body: TaskIn, me: str = Depends(owner)):
+@app.post("/api/tasks", response_model=Task, responses={429: {"description": "слишком много поручений"}})
+def create_task(body: TaskIn, request: Request, me: str = Depends(owner)):
+    # Поручение нагружает модель: лимит на сессию и на адрес, чтобы новая сессия на каждое поручение его не обходила.
+    if wait := ratelimit.check((ratelimit.TASKS, me), (ratelimit.TASKS_IP, _ip(request))):
+        return _too_many(wait)
     t = orchestrator.run(body.text, today(), owner=me)
     store.save_task(me, t)
     return t

@@ -74,6 +74,8 @@ jobs:
             echo "AGENTPAY_SECRET_KEY=$(openssl rand -hex 32)"
             echo "AGENTPAY_TODAY=2026-11-02"
             echo "AGENTPAY_PORT=8080"
+            echo "AGENTPAY_RATE_SESSIONS_IP=2000/60"  # e2e: сотня сессий за пару минут с одного адреса
+            echo "AGENTPAY_RATE_TASKS_IP=2000/60"
           } > .env
       - name: Стенд без Ollama (разбор правилами)
         run: docker compose up -d --build --wait postgres backend frontend

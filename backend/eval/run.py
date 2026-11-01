@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 
 os.environ.setdefault("AGENTPAY_LLM", "auto")
+os.environ.setdefault("AGENTPAY_RATE_LIMITS", "off")  # 40 поручений подряд от одного клиента — это прогон, а не атака
 HERE = Path(__file__).parent
 SPEC = json.loads((HERE / "tasks.json").read_text(encoding="utf-8"))
 os.environ["AGENTPAY_TODAY"] = SPEC["today"]
